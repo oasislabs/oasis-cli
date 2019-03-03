@@ -1,0 +1,14 @@
+[package]
+name = "oasis-cli"
+version = "0.1.0"
+description = "Oasis developer tools"
+authors = ["Oasis Labs <info@oasislabs.com>"]
+edition = "2018"
+
+[[bin]]
+name = "oasis"
+path = "src/main.rs"
+
+[dependencies]
+clap = "2.32"
+cargo_toml = "0.6.4"
