@@ -4,32 +4,36 @@ extern crate clap;
 include!("utils.rs");
 
 fn main() {
-    let mut app = clap::clap_app!(oasis =>
+    let mut app = clap_app!(oasis =>
         (about: "Oasis developer tools")
         (@subcommand init =>
-            (about: "Create a new Oasis package.")
+            (about: "Create a new Oasis package")
             (@arg NAME: +required "Package name")
             (@group type =>
                 (@arg rust: --rust "Create a new Rust project")
             )
         )
         (@subcommand build =>
-            (about: "Build a package for the Oasis platform.")
+            (about: "Build a package for the Oasis platform")
             (@arg release: --release "Build with optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
         )
         (@subcommand clean =>
-            (about: "Remove generated artifacts")
+            (about: "Remove build products")
         )
     );
 
+    // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
 
     std::process::exit(match app_m.subcommand() {
-        ("init", Some(init_m)) => init(init_m.value_of("name").unwrap(), ProjectType::Rust(None)),
+        ("init", Some(init_m)) => init(
+            init_m.value_of("NAME").unwrap_or("."),
+            ProjectType::Rust(None),
+        ),
         ("build", Some(build_m)) => build(
             build_m.is_present("release"),
             build_m.occurrences_of("verbose") as i64,
@@ -42,11 +46,14 @@ fn main() {
     })
 }
 
-/// Initializes an Oasis project
-fn init(_name: &str, project_type: ProjectType) -> i32 {
+/// Creates an Oasis project in a directory.
+fn init(dir: &str, project_type: ProjectType) -> i32 {
     match project_type {
         ProjectType::Rust(_) => {
-            ensure_xargo_toml();
+            run_cmd!("cargo", &["init", "--lib", dir], None, -1);
+            let mut xargo_toml = std::path::PathBuf::from(dir);
+            xargo_toml.push("Xargo.toml");
+            std::fs::write(&xargo_toml, include_str!("../Xargo.toml")).unwrap();
             0
         }
         ProjectType::Unknown => unreachable!(),
@@ -61,7 +68,6 @@ fn build(_release: bool, verbosity: i64) -> i32 {
             -1
         }
         ProjectType::Rust(manifest) => {
-            ensure_xargo_toml();
             let manifest = manifest.unwrap();
             let mut xargo_args = vec!["build", "--target=wasm32-unknown-unknown", "--color=always"];
             if verbosity == 0 {
@@ -73,7 +79,7 @@ fn build(_release: bool, verbosity: i64) -> i32 {
             run_cmd!(
                 "xargo",
                 xargo_args,
-                vec![("RUSTFLAGS", "-Z force-unstable-if-unmarked")],
+                Some(vec![("RUSTFLAGS", "-Z force-unstable-if-unmarked")]),
                 -1 /* silence sysroot compilation */
             );
 
@@ -98,7 +104,7 @@ fn build(_release: bool, verbosity: i64) -> i32 {
                 .and_then(|metadata| metadata.get("oasis"))
                 .and_then(|oasis_metadata| oasis_metadata.get("max-mem"))
                 .map(|max_mem| wasm_build_args.push(format!("--max-mem={}", max_mem)));
-            run_cmd!("wasm-build", wasm_build_args, vec![], verbosity);
+            run_cmd!("wasm-build", wasm_build_args, None, verbosity);
             0
         }
     }
@@ -108,7 +114,7 @@ fn clean() -> i32 {
     match detect_project_type() {
         ProjectType::Unknown => 0,
         ProjectType::Rust(_) => {
-            run_cmd!("cargo", vec!["clean"], vec![], 0);
+            run_cmd!("cargo", &["clean"], None, 0);
             0
         }
     }

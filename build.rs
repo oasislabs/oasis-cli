@@ -8,7 +8,7 @@ fn cargo_install(pkg_name: &'static str, bin_name: &'static str) {
         ));
     match output.status.code() {
         Some(0) | Some(101) => (),
-        _ => panic!("{:#?} {:?}", output, output.status.code()),
+        _ => panic!("{:#?}", output),
     };
 }
 

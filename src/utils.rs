@@ -17,12 +17,12 @@ fn detect_project_type() -> ProjectType {
 }
 
 fn run_cmd<S: AsRef<std::ffi::OsStr>>(
-    cmd: &str,
-    args: Vec<S>,
-    envs: Vec<(S, S)>,
+    name: &str,
+    args: impl IntoIterator<Item = S>,
+    envs: Option<Vec<(S, S)>>,
     verbosity: i64,
 ) -> Result<i32, String> {
-    use std::process::Stdio;
+    use std::process::{Command, Stdio};
     let (stdout, stderr) = if verbosity < 0 {
         (Stdio::null(), Stdio::null())
     } else if verbosity == 0 {
@@ -30,16 +30,17 @@ fn run_cmd<S: AsRef<std::ffi::OsStr>>(
     } else {
         (Stdio::inherit(), Stdio::inherit())
     };
-    let status = std::process::Command::new(cmd)
-        .stdout(stdout)
-        .stderr(stderr)
-        .args(args)
-        .envs(envs.into_iter())
+    let mut cmd = Command::new(name);
+    cmd.stdout(stdout).stderr(stderr).args(args);
+    if let Some(envs) = envs {
+        cmd.envs(envs.into_iter());
+    }
+    let status = cmd
         .spawn()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => format!(
                 "Could not run {}, please make sure it is in your PATH.",
-                cmd
+                name
             ),
             _ => e.to_string(),
         })?
@@ -62,12 +63,5 @@ macro_rules! run_cmd {
             Ok(status_code) if status_code != 0 => return status_code,
             _ => ()
         }
-    }
-}
-
-fn ensure_xargo_toml() {
-    let xargo_toml = std::path::Path::new("Xargo.toml");
-    if !xargo_toml.exists() {
-        std::fs::write(xargo_toml, include_str!("../Xargo.toml")).unwrap();
     }
 }
