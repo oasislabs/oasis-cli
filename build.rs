@@ -1,8 +1,11 @@
 fn cargo_install(pkg_name: &'static str, bin_name: &'static str) {
     let output = std::process::Command::new("cargo")
-        .args(&["install", "xargo", "--bin", bin_name])
+        .args(&["install", pkg_name, "--bin", bin_name])
         .output()
-        .expect(&format!("Could not `cargo install {} --bin {}`", pkg_name, bin_name));
+        .expect(&format!(
+            "Could not `cargo install {} --bin {}`",
+            pkg_name, bin_name
+        ));
     match output.status.code() {
         Some(0) | Some(101) => (),
         _ => panic!("{:#?} {:?}", output, output.status.code()),
