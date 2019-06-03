@@ -1,8 +1,8 @@
 [package]
-name = "cargo-oasis"
+name = "oasis-cli"
 version = "0.1.0"
 description = "Oasis developer tools"
-authors = ["Oasis Labs <info@oasislabs.com>"]
+authors = ["Oasis Labs <feedback@oasislabs.com>"]
 edition = "2018"
 
 [dependencies]

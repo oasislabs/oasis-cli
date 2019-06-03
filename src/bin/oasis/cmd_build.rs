@@ -102,7 +102,7 @@ fn build_rust(
 
     for service_name in product_names {
         let wasm_name = service_name + ".wasm";
-        cargo_oasis::build::prep_wasm(
+        oasis_cli::build::prep_wasm(
             &wasm_dir.join(&wasm_name),
             &services_dir.join(&wasm_name),
             opts.release,
