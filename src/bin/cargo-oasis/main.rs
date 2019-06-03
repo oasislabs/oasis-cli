@@ -9,6 +9,7 @@ mod utils;
 fn main() {
     let mut app = clap_app!(oasis =>
         (about: "Oasis developer tools")
+        (@setting InferSubcommands)
         (@subcommand init =>
             (about: "Create a new Oasis package")
             (@arg NAME: +required "Package name")
@@ -36,7 +37,13 @@ fn main() {
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
-    let app_m = app.get_matches();
+    let mut args = std::env::args_os().collect::<Vec<_>>();
+    if args.get(1).map(|arg| arg == "oasis").unwrap_or(false) {
+        // Remove the app name provided by `cargo oasis`.
+        args.remove(1);
+    }
+
+    let app_m = app.get_matches_from(args);
 
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
