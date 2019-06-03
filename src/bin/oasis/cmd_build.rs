@@ -1,5 +1,7 @@
 use std::{collections::hash_map::Entry, ffi::OsString, path::PathBuf};
 
+use colored::*;
+
 use crate::utils::{detect_project_type, run_cmd_with_env, ProjectType, Verbosity};
 
 pub struct BuildOptions {
@@ -40,13 +42,14 @@ fn build_rust(
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi", "--color=always"];
-    cargo_args.push(if opts.verbosity <= Verbosity::Normal {
-        "--quiet"
-    } else if opts.verbosity <= Verbosity::High {
-        "--verbose"
-    } else {
-        "-vvv"
-    });
+    if opts.verbosity < Verbosity::Normal {
+        cargo_args.push("--quiet");
+    } else if opts.verbosity == Verbosity::High {
+        cargo_args.push("--verbose");
+    } else if opts.verbosity == Verbosity::Debug {
+        cargo_args.push("-vvv")
+    }
+
     if opts.release {
         cargo_args.push("--release");
     }
@@ -66,6 +69,27 @@ fn build_rust(
         cargo_args.push(service_name);
     }
 
+    let product_names = if opts.services.is_empty() {
+        manifest
+            .bin
+            .iter()
+            .filter_map(|bin| bin.name.as_ref().map(String::to_string))
+            .collect()
+    } else {
+        opts.services.clone()
+    };
+    let num_products = product_names.len();
+
+    let target_dir = PathBuf::from(
+        std::env::var_os("CARGO_TARGET_DIR")
+            .unwrap_or_else(|| OsString::from("target".to_string())),
+    );
+
+    let services_dir = target_dir.join("service");
+    if !services_dir.is_dir() {
+        std::fs::create_dir_all(&services_dir)?;
+    }
+
     let mut envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
     let stack_size_flag = OsString::from(format!("-C link-args=-zstack-size={}", opts.stack_size));
     match envs.entry(OsString::from("RUSTFLAGS")) {
@@ -74,39 +98,38 @@ fn build_rust(
             ent.insert(stack_size_flag);
         }
     }
-    run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs)?;
-
-    let target_dir = PathBuf::from(
-        std::env::var_os("CARGO_TARGET_DIR")
-            .unwrap_or_else(|| OsString::from("target".to_string())),
+    envs.insert(OsString::from("RUSTC_WRAPPER"), OsString::from("idl-gen"));
+    envs.insert(
+        OsString::from("GEN_IDL_FOR"),
+        OsString::from(product_names.join(",")),
     );
+    envs.insert(
+        OsString::from("IDL_TARGET_DIR"),
+        services_dir.as_os_str().to_owned(),
+    );
+
+    if opts.verbosity >= Verbosity::Normal {
+        eprintln!(
+            "    {} service{}",
+            "Building".cyan(),
+            if num_products > 1 { "s" } else { "" }
+        );
+    }
+    run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs)?;
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
-
-    let services_dir = target_dir.join("service");
-    if !services_dir.is_dir() {
-        println!("creating dir!");
-        std::fs::create_dir(&services_dir)?;
+    for product_name in product_names {
+        let wasm_name = product_name + ".wasm";
+        let wasm_file = wasm_dir.join(&wasm_name);
+        if !wasm_file.is_file() {
+            continue;
+        }
+        if opts.verbosity >= Verbosity::Normal {
+            eprintln!("    {} {}", "Preparing".cyan(), wasm_name,);
+        }
+        oasis_cli::build::prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
     }
 
-    let product_names = if opts.services.is_empty() {
-        manifest
-            .bin
-            .iter()
-            .filter_map(|bin| bin.name.as_ref().map(String::to_string))
-            .collect()
-    } else {
-        opts.services
-    };
-
-    for service_name in product_names {
-        let wasm_name = service_name + ".wasm";
-        oasis_cli::build::prep_wasm(
-            &wasm_dir.join(&wasm_name),
-            &services_dir.join(&wasm_name),
-            opts.release,
-        )?;
-    }
     Ok(())
 }
