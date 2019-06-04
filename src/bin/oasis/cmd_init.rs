@@ -14,6 +14,6 @@ pub fn init(dir: &str, project_type: &str) -> Result<(), failure::Error> {
 fn init_rust(dir: &str) -> Result<(), failure::Error> {
     run_cmd("cargo", &["init", "--bin", dir], Verbosity::Silent)?;
     // TODO: should clone starter repo with `.cargo/config` and whatnot
-    // also ensure that idl-gen is insstalled
+    // also ensure that compiler plugin is insstalled
     Ok(())
 }

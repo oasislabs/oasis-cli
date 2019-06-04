@@ -41,7 +41,7 @@ fn build_rust(
     opts: BuildOptions,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
-    let mut cargo_args = vec!["build", "--target=wasm32-wasi", "--color=always"];
+    let mut cargo_args = vec!["build", "--bins", "--target=wasm32-wasi", "--color=always"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
     } else if opts.verbosity == Verbosity::High {
@@ -100,7 +100,10 @@ fn build_rust(
             }
         }
     }
-    envs.insert(OsString::from("RUSTC_WRAPPER"), OsString::from("idl-gen"));
+    envs.insert(
+        OsString::from("RUSTC_WRAPPER"),
+        OsString::from("mantle-build"),
+    );
     envs.insert(
         OsString::from("GEN_IDL_FOR"),
         OsString::from(product_names.join(",")),
