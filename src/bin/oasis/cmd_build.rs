@@ -5,7 +5,7 @@ use colored::*;
 use crate::utils::{detect_project_type, run_cmd_with_env, ProjectType, Verbosity};
 
 pub struct BuildOptions {
-    pub stack_size: u32,
+    pub stack_size: Option<u32>,
     pub services: Vec<String>,
     pub release: bool,
     pub verbosity: Verbosity,
@@ -15,11 +15,11 @@ impl BuildOptions {
     pub fn new(m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
             stack_size: match value_t!(m, "stack_size", u32) {
-                Ok(stack_size) => stack_size,
+                Ok(stack_size) => Some(stack_size),
                 Err(clap::Error {
                     kind: clap::ErrorKind::ArgumentNotFound,
                     ..
-                }) => 0,
+                }) => None,
                 Err(err) => return Err(err.into()),
             },
             release: m.is_present("release"),
@@ -91,11 +91,13 @@ fn build_rust(
     }
 
     let mut envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
-    let stack_size_flag = OsString::from(format!("-C link-args=-zstack-size={}", opts.stack_size));
-    match envs.entry(OsString::from("RUSTFLAGS")) {
-        Entry::Occupied(mut ent) => ent.get_mut().push(stack_size_flag),
-        Entry::Vacant(ent) => {
-            ent.insert(stack_size_flag);
+    if let Some(stack_size) = opts.stack_size {
+        let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
+        match envs.entry(OsString::from("RUSTFLAGS")) {
+            Entry::Occupied(mut ent) => ent.get_mut().push(stack_size_flag),
+            Entry::Vacant(ent) => {
+                ent.insert(stack_size_flag);
+            }
         }
     }
     envs.insert(OsString::from("RUSTC_WRAPPER"), OsString::from("idl-gen"));
