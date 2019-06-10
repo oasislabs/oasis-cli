@@ -105,12 +105,8 @@ fn build_rust(
         OsString::from("mantle-build"),
     );
     envs.insert(
-        OsString::from("GEN_IDL_FOR"),
-        OsString::from(product_names.join(",")),
-    );
-    envs.insert(
-        OsString::from("IDL_TARGET_DIR"),
-        services_dir.as_os_str().to_owned(),
+        OsString::from("MANTLE_BLOCKCHAIN_NAME"),
+        OsString::from("oasis"),
     );
 
     if opts.verbosity >= Verbosity::Normal {
