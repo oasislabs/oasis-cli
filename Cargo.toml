@@ -2,13 +2,12 @@
 name = "oasis-cli"
 version = "0.1.0"
 description = "Oasis developer tools"
-authors = ["Oasis Labs <info@oasislabs.com>"]
+authors = ["Oasis Labs <feedback@oasislabs.com>"]
 edition = "2018"
 
-[[bin]]
-name = "oasis"
-path = "src/main.rs"
-
 [dependencies]
-clap = "2.32"
-cargo_toml = "0.6.4"
+cargo_toml = "0.6"
+clap = "2.33"
+colored = "1.8"
+failure = "0.1"
+walrus = "0.7"
