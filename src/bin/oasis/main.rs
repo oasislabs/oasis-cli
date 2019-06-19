@@ -8,7 +8,8 @@ mod utils;
 
 fn main() {
     let mut app = clap_app!(oasis =>
-        (about: "Oasis developer tools")
+        (about: crate_version!())
+        (version: crate_version!())
         (@setting InferSubcommands)
         (@subcommand init =>
             (about: "Create a new Oasis package")
