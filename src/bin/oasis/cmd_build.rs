@@ -8,6 +8,7 @@ pub struct BuildOptions {
     pub stack_size: Option<u32>,
     pub services: Vec<String>,
     pub release: bool,
+    pub hardmode: bool,
     pub verbosity: Verbosity,
 }
 
@@ -24,6 +25,7 @@ impl BuildOptions {
             },
             release: m.is_present("release"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
+            hardmode: m.is_present("hardmode"),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
         })
     }
@@ -41,7 +43,7 @@ fn build_rust(
     opts: BuildOptions,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
-    let mut cargo_args = vec!["build", "--bins", "--target=wasm32-wasi", "--color=always"];
+    let mut cargo_args = vec!["build", "--target=wasm32-wasi", "--color=always"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
     } else if opts.verbosity == Verbosity::High {
@@ -54,19 +56,23 @@ fn build_rust(
         cargo_args.push("--release");
     }
 
-    for service_name in opts.services.iter() {
-        if !manifest
-            .bin
-            .iter()
-            .any(|bin| Some(service_name) == bin.name.as_ref())
-        {
-            return Err(failure::format_err!(
-                "could not find service binary `{}` in crate",
-                service_name
-            ));
+    if opts.services.is_empty() {
+        cargo_args.push("--bins");
+    } else {
+        for service_name in opts.services.iter() {
+            if !manifest
+                .bin
+                .iter()
+                .any(|bin| Some(service_name) == bin.name.as_ref())
+            {
+                return Err(failure::format_err!(
+                    "could not find service binary `{}` in crate",
+                    service_name
+                ));
+            }
+            cargo_args.push("--bin");
+            cargo_args.push(service_name);
         }
-        cargo_args.push("--bin");
-        cargo_args.push(service_name);
     }
 
     let product_names = if opts.services.is_empty() {
@@ -100,14 +106,16 @@ fn build_rust(
             }
         }
     }
-    envs.insert(
-        OsString::from("RUSTC_WRAPPER"),
-        OsString::from("mantle-build"),
-    );
-    envs.insert(
-        OsString::from("MANTLE_BLOCKCHAIN_NAME"),
-        OsString::from("oasis"),
-    );
+    if !opts.hardmode {
+        envs.insert(
+            OsString::from("RUSTC_WRAPPER"),
+            OsString::from("mantle-build"),
+        );
+        envs.insert(
+            OsString::from("MANTLE_BLOCKCHAIN_NAME"),
+            OsString::from("oasis"),
+        );
+    }
 
     if opts.verbosity >= Verbosity::Normal {
         eprintln!(
