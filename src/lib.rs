@@ -8,7 +8,6 @@ pub mod build {
     ) -> Result<(), failure::Error> {
         let mut module = walrus::Module::from_file(input_wasm)?;
 
-        remove_start_fn(&mut module);
         externalize_mem(&mut module);
 
         if release {
@@ -31,20 +30,5 @@ pub mod build {
 
         let mut mem = module.memories.iter_mut().nth(0).unwrap();
         mem.import = Some(module.imports.add("env", "memory", mem.id()));
-    }
-
-    fn remove_start_fn(module: &mut walrus::Module) {
-        let mut start_fn_ids = None;
-        for export in module.exports.iter() {
-            if let walrus::ExportItem::Function(fn_id) = export.item {
-                if export.name == "_start" {
-                    start_fn_ids = Some((export.id(), fn_id));
-                }
-            }
-        }
-        if let Some((start_export_id, start_fn_id)) = start_fn_ids {
-            module.exports.delete(start_export_id);
-            module.funcs.delete(start_fn_id);
-        }
     }
 }
