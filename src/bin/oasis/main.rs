@@ -23,6 +23,7 @@ fn main() {
             (@arg release: --release "Build with optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg stack_size: --stack-size "Set the Wasm stack size")
+            (@arg hardmode: --hardmode "Build a vanilla WASI service (that doesn't use Mantle)")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
         )
         (@subcommand test =>
