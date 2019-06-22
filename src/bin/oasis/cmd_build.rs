@@ -1,4 +1,8 @@
-use std::{collections::hash_map::Entry, ffi::OsString, path::PathBuf};
+use std::{
+    collections::hash_map::Entry,
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use colored::*;
 
@@ -35,7 +39,20 @@ impl BuildOptions {
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
     match detect_project_type() {
         ProjectType::Rust(manifest) => build_rust(opts, manifest),
-        ProjectType::Unknown => Err(failure::format_err!("could not detect Oasis project type.")),
+        ProjectType::Unknown => match opts.services.as_slice() {
+            [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
+                let svc = Path::new(svc);
+                let parent = svc.parent();
+                let out_file = if parent.is_none() || parent.unwrap().to_str().unwrap().is_empty() {
+                    svc.with_extension("wasm")
+                } else {
+                    svc.to_path_buf()
+                };
+                oasis_cli::build::prep_wasm(&svc, &out_file, opts.release)?;
+                Ok(())
+            }
+            _ => Err(failure::format_err!("could not detect Oasis project type.")),
+        },
     }
 }
 
