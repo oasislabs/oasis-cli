@@ -11,7 +11,20 @@ pub mod build {
         externalize_mem(&mut module);
 
         if release {
-            module.customs = Default::default();
+            let customs_to_delete = module
+                .customs
+                .iter()
+                .filter_map(|(id, custom)| {
+                    if custom.name().starts_with("mantle") {
+                        None
+                    } else {
+                        Some(id)
+                    }
+                })
+                .collect::<Vec<_>>();
+            for id in customs_to_delete {
+                module.customs.delete(id)
+            }
         }
 
         module.emit_wasm_file(output_wasm)?;

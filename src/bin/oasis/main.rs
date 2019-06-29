@@ -3,6 +3,7 @@ extern crate clap;
 
 mod cmd_build;
 mod cmd_clean;
+mod cmd_ifextract;
 mod cmd_init;
 mod utils;
 
@@ -33,6 +34,11 @@ fn main() {
         (@subcommand clean =>
             (about: "Remove build products")
         )
+        (@subcommand ifextract =>
+            (about: "Extract interface definition(s) from a Mantle service.wasm")
+            (@arg out_dir: -o --out-dir "The directory into which to write the interface.json(s)")
+            (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
+        )
     );
 
     // Store `help` for later since `get_matches` takes ownership.
@@ -45,6 +51,10 @@ fn main() {
         ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
         ("build", Some(m)) => cmd_build::BuildOptions::new(&m).and_then(cmd_build::build),
         ("clean", Some(_)) => cmd_clean::clean(),
+        ("ifextract", Some(m)) => cmd_ifextract::ifextract(
+            m.value_of("SERVICE_URL").unwrap(),
+            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
+        ),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;
