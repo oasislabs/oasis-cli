@@ -36,7 +36,7 @@ fn main() {
         )
         (@subcommand ifextract =>
             (about: "Extract interface definition(s) from a Mantle service.wasm")
-            (@arg out_dir: -o --out-dir "The directory into which to write the interface.json(s)")
+            (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
     );
