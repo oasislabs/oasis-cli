@@ -1,7 +1,7 @@
 use crate::utils::{run_cmd, Verbosity};
 
 /// Creates an Oasis project in a directory.
-pub fn init(dir: &str, project_type: &str) -> Result<(), failure::Error> {
+pub fn init(dir: &str, project_type: &str) -> Result<String, failure::Error> {
     match project_type {
         "rust" => init_rust(dir),
         _ => Err(failure::format_err!(
@@ -11,9 +11,9 @@ pub fn init(dir: &str, project_type: &str) -> Result<(), failure::Error> {
     }
 }
 
-fn init_rust(dir: &str) -> Result<(), failure::Error> {
+fn init_rust(dir: &str) -> Result<String, failure::Error> {
     run_cmd("cargo", &["init", "--bin", dir], Verbosity::Silent)?;
     // TODO: should clone starter repo with `.cargo/config` and whatnot
     // also ensure that compiler plugin is insstalled
-    Ok(())
+    Ok("".to_owned())
 }

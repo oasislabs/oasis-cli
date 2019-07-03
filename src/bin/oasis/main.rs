@@ -4,6 +4,7 @@ extern crate clap;
 mod cmd_build;
 mod cmd_clean;
 mod cmd_init;
+mod cmd_setup;
 mod utils;
 
 fn main() {
@@ -33,6 +34,9 @@ fn main() {
         (@subcommand clean =>
             (about: "Remove build products")
         )
+        (@subcommand setup =>
+            (about: "Verify the system has installed the expected rust toolchain and was compile target version ")
+        )
     );
 
     // Store `help` for later since `get_matches` takes ownership.
@@ -45,13 +49,23 @@ fn main() {
         ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
         ("build", Some(m)) => cmd_build::BuildOptions::new(&m).and_then(cmd_build::build),
         ("clean", Some(_)) => cmd_clean::clean(),
+        ("setup", Some(_)) => cmd_setup::setup(),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;
         }
     };
-    if let Err(err) = result {
-        use colored::*;
-        eprintln!("{}: {}", "error".red(), err.to_string());
+
+    match result {
+        Err(err) => {
+            use colored::*;
+            eprintln!("{}: {}", "error".red(), err.to_string());
+        }
+        Ok(s) => {
+            if s.len() > 0 {
+                use colored::*;
+                eprintln!("{}: {}", "success".green(), s);
+            }
+        }
     }
 }

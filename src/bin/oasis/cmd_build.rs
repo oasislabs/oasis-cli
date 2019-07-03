@@ -36,7 +36,7 @@ impl BuildOptions {
 }
 
 /// Builds a project for the Oasis platform
-pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
+pub fn build(opts: BuildOptions) -> Result<String, failure::Error> {
     match detect_project_type() {
         ProjectType::Rust(manifest) => build_rust(opts, manifest),
         ProjectType::Unknown => match opts.services.as_slice() {
@@ -49,7 +49,7 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
                     svc.to_path_buf()
                 };
                 oasis_cli::build::prep_wasm(&svc, &out_file, opts.release)?;
-                Ok(())
+                Ok("".to_owned())
             }
             _ => Err(failure::format_err!("could not detect Oasis project type.")),
         },
@@ -59,7 +59,7 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
 fn build_rust(
     opts: BuildOptions,
     manifest: Box<cargo_toml::Manifest>,
-) -> Result<(), failure::Error> {
+) -> Result<String, failure::Error> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi", "--color=always"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
@@ -157,5 +157,5 @@ fn build_rust(
         oasis_cli::build::prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
     }
 
-    Ok(())
+    Ok("".to_owned())
 }
