@@ -3,8 +3,8 @@ extern crate clap;
 
 mod cmd_build;
 mod cmd_clean;
+mod cmd_doctor;
 mod cmd_init;
-mod cmd_setup;
 mod utils;
 
 fn main() {
@@ -34,7 +34,7 @@ fn main() {
         (@subcommand clean =>
             (about: "Remove build products")
         )
-        (@subcommand setup =>
+        (@subcommand doctor =>
             (about: "Verify the system has installed the expected rust toolchain and was compile target version ")
         )
     );
@@ -49,7 +49,7 @@ fn main() {
         ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
         ("build", Some(m)) => cmd_build::BuildOptions::new(&m).and_then(cmd_build::build),
         ("clean", Some(_)) => cmd_clean::clean(),
-        ("setup", Some(_)) => cmd_setup::setup(),
+        ("doctor", Some(_)) => cmd_doctor::doctor(),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;

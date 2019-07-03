@@ -206,7 +206,7 @@ fn get_rustup_toolchains() -> Result<Vec<Toolchain>, failure::Error> {
     Ok(toolchains)
 }
 
-pub fn setup() -> Result<String, failure::Error> {
+pub fn doctor() -> Result<String, failure::Error> {
     let minimum_rustc_version = "rustc 1.35.0-nightly (53f2165c5 2019-04-04)";
     let minimum_cargo_version = "cargo 1.35.0-nightly (63231f438 2019-03-27)";
     let required_toolchain = "nightly-x86_64-apple-darwin";
