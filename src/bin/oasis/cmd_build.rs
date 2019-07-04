@@ -128,10 +128,6 @@ fn build_rust(
             OsString::from("RUSTC_WRAPPER"),
             OsString::from("mantle-build"),
         );
-        envs.insert(
-            OsString::from("MANTLE_BLOCKCHAIN_NAME"),
-            OsString::from("oasis"),
-        );
     }
 
     if opts.verbosity >= Verbosity::Normal {
