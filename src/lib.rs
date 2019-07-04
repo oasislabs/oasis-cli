@@ -23,7 +23,7 @@ pub mod build {
                 })
                 .collect::<Vec<_>>();
             for id in customs_to_delete {
-                module.customs.delete(id)
+                module.customs.delete(id);
             }
         }
 
