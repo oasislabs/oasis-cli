@@ -22,9 +22,9 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
-    pub fn new(config: &Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+    pub fn new(config: Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
-            config: config.clone(),
+            config,
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
                 Err(clap::Error {
