@@ -10,6 +10,7 @@ cargo_toml = "0.6"
 clap = "2.33"
 colored = "1.8"
 failure = "0.1"
-walrus = "0.7"
+walrus = "0.8"
 bytebuffer = "0.2"
 chrono = "0.4"
+mantle-rpc = { version = "0.1", features = ["import"] }
