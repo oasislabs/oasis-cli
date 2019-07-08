@@ -4,12 +4,9 @@ use std::{
     thread,
 };
 
-use bytebuffer::ByteBuffer;
 use chrono::Utc;
 
 use crate::config::Config;
-
-const KB: usize = 1 << 10;
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -21,7 +18,6 @@ pub enum Verbosity {
 }
 
 struct OutputLogger<'a> {
-    buf: ByteBuffer,
     name: &'a str,
     logtype: String,
     out: Box<dyn Write>,
@@ -32,36 +28,34 @@ unsafe impl<'a> Send for OutputLogger<'a> {}
 
 impl<'a> OnOutputCallback for OutputLogger<'a> {
     fn onstart(&mut self) -> Result<(), failure::Error> {
+        write!(
+            self.logger,
+            "{{\"date\": \"{}\", \"name\": \"{}\", \"logtype\": \"{}\", data\": \"",
+            Utc::now(),
+            self.name,
+            self.logtype,
+        )?;
+
         Ok(())
     }
 
     fn ondata(&mut self, output: &[u8]) -> Result<(), failure::Error> {
         self.out.write_all(output)?;
-        let abytes = 3 * KB - self.buf.len();
-        let cbytes = std::cmp::min(abytes, output.len());
-        if cbytes > 0 {
-            self.buf.write_bytes(&output[..cbytes]);
-        }
+        write!(
+            self.logger,
+            "{}",
+            regex::escape(
+                &String::from_utf8(output.to_vec())
+                    .unwrap()
+                    .replace("\n", "\\n")
+            )
+        )?;
 
         Ok(())
     }
 
     fn onend(&mut self) -> Result<(), failure::Error> {
-        if self.buf.len() > 0 {
-            writeln!(
-                self.logger,
-                "{{\"date\": \"{}\", \"name\": \"{}\", \"logtype\": \"{}\", data\": \"{}\"}}",
-                Utc::now(),
-                self.name,
-                self.logtype,
-                regex::escape(
-                    &String::from_utf8(self.buf.to_bytes())
-                        .unwrap()
-                        .replace("\n", "\\n")
-                )
-            )?;
-        }
-
+        writeln!(self.logger, "\"}}")?;
         Ok(())
     }
 }
@@ -128,7 +122,6 @@ pub fn run_cmd_with_env(
             })?;
 
         on_stdout_callback = Some(Box::new(OutputLogger {
-            buf: ByteBuffer::new(),
             name,
             logtype: "stdout".to_string(),
             out: stdout,
@@ -147,7 +140,6 @@ pub fn run_cmd_with_env(
             })?;
 
         on_stderr_callback = Some(Box::new(OutputLogger {
-            buf: ByteBuffer::new(),
             name,
             logtype: "stderr".to_string(),
             out: stderr,
