@@ -8,7 +8,7 @@ use colored::*;
 
 use crate::{
     command::{run_cmd_with_env, Verbosity},
-    config::{Config, Logging},
+    config::Config,
     utils::{detect_project_type, ProjectType},
 };
 
@@ -24,13 +24,7 @@ pub struct BuildOptions {
 impl BuildOptions {
     pub fn new(config: &Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
-            config: Config {
-                logging: Logging {
-                    path_stdout: config.logging.path_stdout.clone(),
-                    path_stderr: config.logging.path_stderr.clone(),
-                    enabled: config.logging.enabled,
-                },
-            },
+            config: config.clone(),
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
                 Err(clap::Error {
