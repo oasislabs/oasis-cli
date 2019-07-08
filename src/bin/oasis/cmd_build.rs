@@ -6,9 +6,14 @@ use std::{
 
 use colored::*;
 
-use crate::utils::{detect_project_type, run_cmd_with_env, ProjectType, Verbosity};
+use crate::{
+    command::{run_cmd_with_env, Verbosity},
+    config::Config,
+    utils::{detect_project_type, ProjectType},
+};
 
 pub struct BuildOptions {
+    pub config: Config,
     pub stack_size: Option<u32>,
     pub services: Vec<String>,
     pub release: bool,
@@ -17,8 +22,9 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
-    pub fn new(m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+    pub fn new(config: Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
+            config,
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
                 Err(clap::Error {
@@ -137,7 +143,7 @@ fn build_rust(
             if num_products > 1 { "s" } else { "" }
         );
     }
-    run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs)?;
+    run_cmd_with_env(&opts.config, "cargo", cargo_args, opts.verbosity, envs)?;
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });

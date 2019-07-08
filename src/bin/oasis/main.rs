@@ -1,13 +1,28 @@
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 mod cmd_build;
 mod cmd_clean;
 mod cmd_ifextract;
 mod cmd_init;
+mod command;
+mod config;
+mod error;
 mod utils;
 
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 fn main() {
+    let mut log_builder = env_logger::Builder::from_default_env();
+    log_builder.format(log_format);
+    log_builder.init();
+
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
         (version: crate_version!())
@@ -47,21 +62,80 @@ fn main() {
 
     let app_m = app.get_matches();
 
+    let config = match generate_config() {
+        Ok(config) => config,
+        Err(err) => {
+            error!("{}", err);
+            std::process::exit(1);
+        }
+    };
+
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
-        ("build", Some(m)) => cmd_build::BuildOptions::new(&m).and_then(cmd_build::build),
-        ("clean", Some(_)) => cmd_clean::clean(),
+        ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
+        ("build", Some(m)) => cmd_build::BuildOptions::new(config, &m).and_then(cmd_build::build),
+        ("clean", Some(_)) => cmd_clean::clean(&config),
         ("ifextract", Some(m)) => cmd_ifextract::ifextract(
             m.value_of("SERVICE_URL").unwrap(),
-            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
+            Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;
         }
     };
+
     if let Err(err) = result {
-        use colored::*;
-        eprintln!("{}: {}", "error".red(), err.to_string());
+        error!("{}", err);
+        std::process::exit(1);
     }
+}
+
+fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
+    let oasis_dir = match dirs::config_dir() {
+        Some(mut config_dir) => {
+            config_dir.push("oasis");
+            config_dir
+        }
+        None => return Err(failure::format_err!("could not resolve user config dir")),
+    };
+
+    let log_dir = oasis_dir.join("log");
+    if !log_dir.is_dir() {
+        fs::create_dir_all(log_dir)?;
+    }
+
+    Ok(oasis_dir)
+}
+
+fn generate_config() -> Result<config::Config, failure::Error> {
+    let oasis_dir = ensure_oasis_dirs()?;
+    let id = rand::random::<u64>();
+    let timestamp = chrono::Utc::now().timestamp();
+    let logdir = oasis_dir.join("log");
+
+    Ok(config::Config {
+        id,
+        timestamp,
+        logging: config::Logging {
+            path_stdout: Path::new(&logdir).join(format!("{}.{}.stdout", timestamp, id)),
+            path_stderr: Path::new(&logdir).join(format!("{}.{}.stderr", timestamp, id)),
+            dir: logdir,
+            enabled: true,
+        },
+    })
+}
+
+fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
+    use colored::*;
+    use std::io::Write as _;
+
+    let level = match record.level() {
+        log::Level::Trace => "trace".bold().white(),
+        log::Level::Debug => "debug".bold().white(),
+        log::Level::Info => "info".bold().blue(),
+        log::Level::Warn => "warning".bold().yellow(),
+        log::Level::Error => "error".bold().red(),
+    };
+
+    writeln!(fmt, "{}: {}", level, record.args())
 }
