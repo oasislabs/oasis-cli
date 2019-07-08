@@ -46,10 +46,8 @@ fn main() {
         )
     );
 
-    let env = Env::generate();
-    must_initialize(&env);
-
-    let config = generate_config(&env);
+    let config_dir = must_initialize();
+    let config = generate_config(config_dir);
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
@@ -76,61 +74,56 @@ fn main() {
     }
 }
 
-struct Env {
-    pub home: Option<String>,
-}
-
-impl Env {
-    fn generate() -> Env {
-        Env {
-            home: match dirs::home_dir() {
-                None => None,
-                Some(home) => Some(home.to_str().unwrap().to_string()),
-            },
-        }
-    }
-}
-
-fn must_initialize(env: &Env) {
-    if let Err(err) = initialize(env) {
-        panic!(format!(
+fn must_initialize() -> String {
+    match initialize() {
+        Err(err) => panic!(format!(
             "ERROR: failed to initialize call `{}`",
             err.to_string()
-        ))
+        )),
+        Ok(dir) => dir
     }
 }
 
-fn initialize(env: &Env) -> Result<(), failure::Error> {
-    match &env.home {
-        None => println!("WARN: no home directoy found for user"),
-        Some(home) => {
-            let oasis_path = Path::new(home).join(".oasis");
-            if !oasis_path.exists() {
-                fs::create_dir(oasis_path)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn generate_config(env: &Env) -> config::Config {
-    let home = match &env.home {
-        None => return config::Config::default(),
-        Some(home) => home,
+fn initialize() -> Result<String, failure::Error> {
+    let config_dir = match dirs::config_dir() {
+        None => panic!("ERROR: no config direction found for user"),
+        Some(config_dir) => config_dir.to_str().unwrap().to_string(),
     };
 
+    let oasis_path = Path::new(&config_dir).join("oasis");
+    if !oasis_path.exists() {
+        fs::create_dir(oasis_path)?;
+    }
+
+    let logging_path = Path::new(&config_dir).join("oasis").join("log");
+    if !logging_path.exists() {
+        fs::create_dir(logging_path)?;
+    }
+
+    Ok(Path::new(&config_dir).join("oasis").to_str().unwrap().to_string())
+}
+
+fn generate_config(oasis_dir: String) -> config::Config {
+    let id = rand::random::<u64>();
+    let timestamp = chrono::Utc::now().timestamp();
+    let logdir = Path::new(&oasis_dir)
+        .join("log")
+        .to_str()
+        .unwrap()
+        .to_string();
+
     config::Config {
+        id,
+        timestamp,
         logging: config::Logging {
-            path_stdout: Path::new(home)
-                .join(".oasis")
-                .join("logging.stdout")
+            dir: logdir.clone(),
+            path_stdout: Path::new(&logdir)
+                .join(format!("{}.{}.stdout", timestamp, id))
                 .to_str()
                 .unwrap()
                 .to_string(),
-            path_stderr: Path::new(home)
-                .join(".oasis")
-                .join("logging.stderr")
+            path_stderr: Path::new(&logdir)
+                .join(format!("{}.{}.stderr", timestamp, id))
                 .to_str()
                 .unwrap()
                 .to_string(),
