@@ -1,13 +1,10 @@
-use bytebuffer::ByteBuffer;
-use chrono::Utc;
 use std::{
     ffi::OsStr,
-    fs,
-    io::{self, Read, Write},
-    process,
-    sync::mpsc::channel,
-    thread,
+    io::{self, Read as _, Write},
 };
+
+use bytebuffer::ByteBuffer;
+use chrono::Utc;
 
 use crate::config::Config;
 
@@ -112,7 +109,7 @@ pub fn run_cmd_with_env(
         None;
 
     if config.logging.enabled && verbosity >= Verbosity::Verbose {
-        let logfile_stdout = fs::OpenOptions::new()
+        let logfile_stdout = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
             .write(true)
@@ -132,7 +129,7 @@ pub fn run_cmd_with_env(
     }
 
     if config.logging.enabled && verbosity > Verbosity::Verbose {
-        let logfile_stderr = fs::OpenOptions::new()
+        let logfile_stderr = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
             .write(true)
@@ -168,18 +165,18 @@ fn run(
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
     props: CommandProps,
 ) -> Result<(), failure::Error> {
-    let mut cmd = process::Command::new(name);
-    let (stdout_sender, stdout_receiver) = channel();
-    let (stderr_sender, stderr_receiver) = channel();
+    let mut cmd = std::process::Command::new(name);
+    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
+    let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
 
     let mut child = cmd
-        .stdout(process::Stdio::piped())
-        .stderr(process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .args(args)
         .envs(envs)
         .spawn()
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => failure::format_err!(
+            io::ErrorKind::NotFound => failure::format_err!(
                 "Could not run `{}`, please make sure it is in your PATH.",
                 name
             ),
@@ -191,7 +188,7 @@ fn run(
 
     if let Some(mut stdout) = child.stdout.take() {
         if let Some(mut on_stdout_callback) = props.on_stdout_callback {
-            stdout_thread = Some(thread::spawn(move || {
+            stdout_thread = Some(std::thread::spawn(move || {
                 let mut buffer = [0; 4096];
                 on_stdout_callback.onstart();
 
@@ -217,7 +214,7 @@ fn run(
 
     if let Some(mut stderr) = child.stderr.take() {
         if let Some(mut on_stderr_callback) = props.on_stderr_callback {
-            stderr_thread = Some(thread::spawn(move || {
+            stderr_thread = Some(std::thread::spawn(move || {
                 let mut buffer = [0; 4096];
                 on_stderr_callback.onstart();
 
