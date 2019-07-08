@@ -98,7 +98,7 @@ pub fn run_cmd_with_env(
     verbosity: Verbosity,
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
 ) -> Result<(), failure::Error> {
-    let (stdout, stderr) : (Box<dyn Write>, Box<dyn Write>)= if verbosity < Verbosity::Normal {
+    let (stdout, stderr): (Box<dyn Write>, Box<dyn Write>) = if verbosity < Verbosity::Normal {
         (Box::new(io::sink()), Box::new(io::sink()))
     } else if verbosity == Verbosity::Verbose {
         (Box::new(io::stdout()), Box::new(io::sink()))
