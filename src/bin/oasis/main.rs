@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate clap;
 
-use std::{fs, path};
-
 mod cmd_build;
 mod cmd_clean;
 mod cmd_ifextract;
@@ -11,59 +9,8 @@ mod command;
 mod config;
 mod utils;
 
-struct Env {
-    pub home: Option<String>,
-}
-
-impl Env {
-    fn generate() -> Env {
-        Env {
-            home: match dirs::home_dir() {
-                None => None,
-                Some(home) => Some(home.to_str().unwrap().to_string()),
-            },
-        }
-    }
-}
-
-fn ensure_initialization(env: &Env) -> Result<(), failure::Error> {
-    match &env.home {
-        None => println!("WARN: no home directoy found for user"),
-        Some(home) => {
-            let oasis_path = path::Path::new(home).join(".oasis");
-            if !oasis_path.exists() {
-                fs::create_dir(oasis_path)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn generate_config(env: &Env) -> config::Config {
-    let home = match &env.home {
-        None => return config::Config::default(),
-        Some(home) => home,
-    };
-
-    config::Config {
-        logging: config::Logging {
-            path_stdout: path::Path::new(home)
-                .join(".oasis")
-                .join("logging.stdout")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            path_stderr: path::Path::new(home)
-                .join(".oasis")
-                .join("logging.stderr")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            enabled: true,
-        },
-    }
-}
+use colored::*;
+use std::{fs, path::Path};
 
 fn main() {
     let mut app = clap_app!(oasis =>
@@ -99,14 +46,11 @@ fn main() {
         )
     );
 
-    let env = Env::generate();
-    if let Err(err) = ensure_initialization(&env) {
-        use colored::*;
-        eprintln!("{}: {}", "error".red(), err.to_string());
-        std::process::exit(1);
-    }
-
-    let config = generate_config(&env);
+    let config_dir = must_initialize();
+    let config = match parse_config(config_dir) {
+        Err(err) => panic!("failed to load configuration `{}`", err.to_string()),
+        Ok(config) => config,
+    };
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
@@ -116,11 +60,11 @@ fn main() {
 
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
-        ("build", Some(m)) => cmd_build::BuildOptions::new(&config, &m).and_then(cmd_build::build),
+        ("build", Some(m)) => cmd_build::BuildOptions::new(config, &m).and_then(cmd_build::build),
         ("clean", Some(_)) => cmd_clean::clean(&config),
         ("ifextract", Some(m)) => cmd_ifextract::ifextract(
             m.value_of("SERVICE_URL").unwrap(),
-            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
+            Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
@@ -129,7 +73,41 @@ fn main() {
     };
 
     if let Err(err) = result {
-        use colored::*;
         eprintln!("{}: {}", "error".red(), err.to_string());
     }
+}
+
+fn must_initialize() -> String {
+    match initialize() {
+        Err(err) => panic!("ERROR: failed to initialize call `{}`", err.to_string()),
+        Ok(dir) => dir,
+    }
+}
+
+fn initialize() -> Result<String, failure::Error> {
+    let config_dir = match dirs::config_dir() {
+        None => panic!("ERROR: no config direction found for user"),
+        Some(config_dir) => config_dir.to_str().unwrap().to_string(),
+    };
+
+    let oasis_path = Path::new(&config_dir).join("oasis");
+    if !oasis_path.exists() {
+        fs::create_dir(oasis_path)?;
+    }
+
+    let logging_path = Path::new(&config_dir).join("oasis").join("log");
+    if !logging_path.exists() {
+        fs::create_dir(logging_path)?;
+    }
+
+    Ok(Path::new(&config_dir)
+        .join("oasis")
+        .to_str()
+        .unwrap()
+        .to_string())
+}
+
+fn parse_config(oasis_dir: String) -> Result<config::Config, failure::Error> {
+    let config_path = Path::new(&oasis_dir).join("config");
+    config::Config::load(config_path.to_str().unwrap())
 }

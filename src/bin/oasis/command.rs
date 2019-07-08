@@ -1,17 +1,12 @@
-use bytebuffer::ByteBuffer;
-use chrono::Utc;
 use std::{
     ffi::OsStr,
-    fs,
     io::{self, Read, Write},
-    process,
-    sync::mpsc::channel,
     thread,
 };
 
-use crate::config::Config;
+use chrono::Utc;
 
-const KB: usize = 1 << 10;
+use crate::config::Config;
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -23,7 +18,6 @@ pub enum Verbosity {
 }
 
 struct OutputLogger<'a> {
-    buf: ByteBuffer,
     name: &'a str,
     logtype: String,
     out: Box<dyn Write>,
@@ -33,30 +27,36 @@ struct OutputLogger<'a> {
 unsafe impl<'a> Send for OutputLogger<'a> {}
 
 impl<'a> OnOutputCallback for OutputLogger<'a> {
-    fn onstart(&mut self) {}
+    fn onstart(&mut self) -> Result<(), failure::Error> {
+        write!(
+            self.logger,
+            "{{\"date\": \"{}\", \"name\": \"{}\", \"logtype\": \"{}\", data\": \"",
+            Utc::now(),
+            self.name,
+            self.logtype,
+        )?;
 
-    fn ondata(&mut self, output: &[u8]) {
-        let _ = self.out.write(output);
-        let abytes = 3 * KB - self.buf.len();
-        let cbytes = std::cmp::min(abytes, output.len());
-        if cbytes > 0 {
-            self.buf.write_bytes(&output[..cbytes]);
-        }
+        Ok(())
     }
 
-    fn onend(&mut self) {
-        if self.buf.len() > 0 {
-            let _ = writeln!(
-                self.logger,
-                "{{\"date\": \"{}\", \"name\": \"{}\", \"logtype\": \"{}\", data\": \"{}\"}}",
-                Utc::now(),
-                self.name,
-                self.logtype,
-                String::from_utf8(self.buf.to_bytes())
+    fn ondata(&mut self, output: &[u8]) -> Result<(), failure::Error> {
+        self.out.write_all(output)?;
+        write!(
+            self.logger,
+            "{}",
+            regex::escape(
+                &String::from_utf8(output.to_vec())
                     .unwrap()
                     .replace("\n", "\\n")
-            );
-        }
+            )
+        )?;
+
+        Ok(())
+    }
+
+    fn onend(&mut self) -> Result<(), failure::Error> {
+        writeln!(self.logger, "\"}}")?;
+        Ok(())
     }
 }
 
@@ -72,9 +72,9 @@ impl From<u64> for Verbosity {
 }
 
 pub trait OnOutputCallback {
-    fn onstart(&mut self);
-    fn ondata(&mut self, output: &[u8]);
-    fn onend(&mut self);
+    fn onstart(&mut self) -> Result<(), failure::Error>;
+    fn ondata(&mut self, output: &[u8]) -> Result<(), failure::Error>;
+    fn onend(&mut self) -> Result<(), failure::Error>;
 }
 
 pub struct CommandProps {
@@ -112,10 +112,9 @@ pub fn run_cmd_with_env(
         None;
 
     if config.logging.enabled && verbosity >= Verbosity::Verbose {
-        let logfile_stdout = fs::OpenOptions::new()
+        let logfile_stdout = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
-            .write(true)
             .create(true)
             .open(&config.logging.path_stdout)
             .map_err(|e| {
@@ -123,7 +122,6 @@ pub fn run_cmd_with_env(
             })?;
 
         on_stdout_callback = Some(Box::new(OutputLogger {
-            buf: ByteBuffer::new(),
             name,
             logtype: "stdout".to_string(),
             out: stdout,
@@ -132,10 +130,9 @@ pub fn run_cmd_with_env(
     }
 
     if config.logging.enabled && verbosity > Verbosity::Verbose {
-        let logfile_stderr = fs::OpenOptions::new()
+        let logfile_stderr = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
-            .write(true)
             .create(true)
             .open(&config.logging.path_stderr)
             .map_err(|e| {
@@ -143,7 +140,6 @@ pub fn run_cmd_with_env(
             })?;
 
         on_stderr_callback = Some(Box::new(OutputLogger {
-            buf: ByteBuffer::new(),
             name,
             logtype: "stderr".to_string(),
             out: stderr,
@@ -162,123 +158,126 @@ pub fn run_cmd_with_env(
     )
 }
 
+fn collect_output<O: Read + Send + 'static>(
+    out: Option<O>,
+    on_output_callback: Option<Box<dyn OnOutputCallback + Send>>,
+    sender: std::sync::mpsc::Sender<Option<failure::Error>>,
+) -> Result<Option<thread::JoinHandle<()>>, failure::Error> {
+    if let Some(mut out) = out {
+        if let Some(mut on_output_callback) = on_output_callback {
+            return Ok(Some(thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                if let Err(err) = on_output_callback.onstart() {
+                    println!(
+                        "WARN: error occurred on starting output collection `{}`",
+                        err.to_string()
+                    );
+                }
+
+                loop {
+                    match out.read(&mut buffer[..]) {
+                        Ok(rbytes) => {
+                            if rbytes == 0 {
+                                if let Err(err) = on_output_callback.onend() {
+                                    println!(
+                                        "WARN: error occurred on ending output collection `{}`",
+                                        err.to_string()
+                                    );
+                                }
+
+                                if let Err(err) = sender.send(None) {
+                                    println!(
+                                        "ERROR: failed to return successful result from thread `{}`",
+                                        err.to_string()
+                                    );
+                                }
+                                return;
+                            }
+                            if let Err(err) = on_output_callback.ondata(&buffer[0..rbytes]) {
+                                println!(
+                                    "WARN: error occurred on output collection `{}`",
+                                    err.to_string()
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            if let Err(err) = sender.send(Some(failure::format_err!(
+                                "failed to receive error `{}`",
+                                err.to_string()
+                            ))) {
+                                println!(
+                                    "ERROR: failed to return error result from thread `{}`",
+                                    err.to_string()
+                                );
+                            }
+                            return;
+                        }
+                    }
+                }
+            })));
+        }
+    }
+
+    Ok(None)
+}
+
+fn finish_collection(
+    thread: Option<thread::JoinHandle<()>>,
+    receiver: std::sync::mpsc::Receiver<Option<failure::Error>>,
+) -> Result<(), failure::Error> {
+    if let Some(thread) = thread {
+        match receiver.recv() {
+            Err(err) => {
+                return Err(failure::format_err!(
+                    "Failed to receive thread result `{}`",
+                    err.to_string()
+                ))
+            }
+            Ok(opt) => match opt {
+                None => {}
+                Some(err) => println!("WARN: error on capturing output `{}`", err.to_string()),
+            },
+        }
+
+        thread
+            .join()
+            .map_err(|_| failure::format_err!("Failed to join thread"))?;
+    }
+
+    Ok(())
+}
+
 fn run(
     name: &str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
     props: CommandProps,
 ) -> Result<(), failure::Error> {
-    let mut cmd = process::Command::new(name);
-    let (stdout_sender, stdout_receiver) = channel();
-    let (stderr_sender, stderr_receiver) = channel();
+    let mut cmd = std::process::Command::new(name);
+    let (stdout_sender, stdout_receiver) = std::sync::mpsc::channel();
+    let (stderr_sender, stderr_receiver) = std::sync::mpsc::channel();
 
     let mut child = cmd
-        .stdout(process::Stdio::piped())
-        .stderr(process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .args(args)
         .envs(envs)
         .spawn()
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => failure::format_err!(
+            io::ErrorKind::NotFound => failure::format_err!(
                 "Could not run `{}`, please make sure it is in your PATH.",
                 name
             ),
             _ => failure::format_err!("{}", e.to_string()),
         })?;
 
-    let mut stdout_thread = None;
-    let mut stderr_thread = None;
+    let stdout_thread: Option<thread::JoinHandle<()>> =
+        collect_output(child.stdout.take(), props.on_stdout_callback, stdout_sender)?;
+    let stderr_thread: Option<thread::JoinHandle<()>> =
+        collect_output(child.stderr.take(), props.on_stderr_callback, stderr_sender)?;
 
-    if let Some(mut stdout) = child.stdout.take() {
-        if let Some(mut on_stdout_callback) = props.on_stdout_callback {
-            stdout_thread = Some(thread::spawn(move || {
-                let mut buffer = [0; 4096];
-                on_stdout_callback.onstart();
-
-                loop {
-                    match stdout.read(&mut buffer[..]) {
-                        Ok(rbytes) => {
-                            if rbytes == 0 {
-                                on_stdout_callback.onend();
-                                let _ = stdout_sender.send(None);
-                                return;
-                            }
-                            on_stdout_callback.ondata(&buffer[0..rbytes]);
-                        }
-                        Err(err) => {
-                            let _ = stdout_sender.send(Some(err));
-                            return;
-                        }
-                    }
-                }
-            }));
-        }
-    }
-
-    if let Some(mut stderr) = child.stderr.take() {
-        if let Some(mut on_stderr_callback) = props.on_stderr_callback {
-            stderr_thread = Some(thread::spawn(move || {
-                let mut buffer = [0; 4096];
-                on_stderr_callback.onstart();
-
-                loop {
-                    match stderr.read(&mut buffer[..]) {
-                        Ok(rbytes) => {
-                            if rbytes == 0 {
-                                on_stderr_callback.onend();
-                                let _ = stderr_sender.send(None);
-                                return;
-                            }
-                            on_stderr_callback.ondata(&buffer[0..rbytes]);
-                        }
-                        Err(err) => {
-                            let _ = stderr_sender.send(Some(err));
-                            return;
-                        }
-                    }
-                }
-            }));
-        }
-    }
-
-    if let Some(thread) = stdout_thread {
-        match stdout_receiver.recv() {
-            Err(err) => {
-                return Err(failure::format_err!(
-                    "Failed to receive stdout thread result `{}`",
-                    err.to_string()
-                ))
-            }
-            Ok(opt) => match opt {
-                None => {}
-                Some(err) => println!(
-                    "WARN: error on capturing stdout output `{}`",
-                    err.to_string()
-                ),
-            },
-        }
-        let _ = thread.join();
-    }
-
-    if let Some(thread) = stderr_thread {
-        match stderr_receiver.recv() {
-            Err(err) => {
-                return Err(failure::format_err!(
-                    "Failed to receive stderr thread result `{}`",
-                    err.to_string()
-                ))
-            }
-            Ok(opt) => match opt {
-                None => {}
-                Some(err) => println!(
-                    "WARN: error on capturing stdout output `{}`",
-                    err.to_string()
-                ),
-            },
-        }
-
-        let _ = thread.join();
-    }
+    finish_collection(stdout_thread, stdout_receiver)?;
+    finish_collection(stderr_thread, stderr_receiver)?;
 
     let status = child
         .wait()
