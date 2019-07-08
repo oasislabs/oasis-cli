@@ -54,7 +54,7 @@ fn generate_config(env: &Env) -> config::Config {
         Some(home) => home,
     };
 
-    return config::Config {
+    config::Config {
         logging: config::Logging {
             path_stdout: path::Path::new(home)
                 .join(".oasis")
@@ -70,7 +70,7 @@ fn generate_config(env: &Env) -> config::Config {
                 .to_string(),
             enabled: true,
         },
-    };
+    }
 }
 
 fn main() {

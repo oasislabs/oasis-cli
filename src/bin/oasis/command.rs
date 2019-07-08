@@ -124,7 +124,7 @@ pub fn run_cmd_with_env(
 
         on_stdout_callback = Some(Box::new(OutputLogger {
             buf: ByteBuffer::new(),
-            name: name,
+            name,
             logtype: "stdout".to_string(),
             out: stdout,
             logger: Box::new(logfile_stdout),
@@ -144,7 +144,7 @@ pub fn run_cmd_with_env(
 
         on_stderr_callback = Some(Box::new(OutputLogger {
             buf: ByteBuffer::new(),
-            name: name,
+            name,
             logtype: "stderr".to_string(),
             out: stderr,
             logger: Box::new(logfile_stderr),
@@ -156,8 +156,8 @@ pub fn run_cmd_with_env(
         args,
         envs,
         CommandProps {
-            on_stdout_callback: on_stdout_callback,
-            on_stderr_callback: on_stderr_callback,
+            on_stdout_callback,
+            on_stderr_callback,
         },
     )
 }
