@@ -11,6 +11,7 @@ cargo_toml = "0.6"
 chrono = "0.4"
 clap = "2.33"
 colored = "1.8"
+dirs = "2.0.1"
 failure = "0.1"
 mantle-rpc = { version = "0.1", features = ["import"] }
 walrus = "0.8"
