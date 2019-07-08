@@ -107,27 +107,15 @@ fn initialize() -> Result<String, failure::Error> {
 fn generate_config(oasis_dir: String) -> config::Config {
     let id = rand::random::<u64>();
     let timestamp = chrono::Utc::now().timestamp();
-    let logdir = Path::new(&oasis_dir)
-        .join("log")
-        .to_str()
-        .unwrap()
-        .to_string();
+    let logdir = Path::new(&oasis_dir).join("log");
 
     config::Config {
         id,
         timestamp,
         logging: config::Logging {
-            dir: logdir.clone(),
-            path_stdout: Path::new(&logdir)
-                .join(format!("{}.{}.stdout", timestamp, id))
-                .to_str()
-                .unwrap()
-                .to_string(),
-            path_stderr: Path::new(&logdir)
-                .join(format!("{}.{}.stderr", timestamp, id))
-                .to_str()
-                .unwrap()
-                .to_string(),
+            path_stdout: Path::new(&logdir).join(format!("{}.{}.stdout", timestamp, id)),
+            path_stderr: Path::new(&logdir).join(format!("{}.{}.stderr", timestamp, id)),
+            dir: logdir,
             enabled: true,
         },
     }
