@@ -7,10 +7,13 @@ mod cmd_ifextract;
 mod cmd_init;
 mod command;
 mod config;
+mod log;
 mod utils;
 
-use colored::*;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     let mut app = clap_app!(oasis =>
@@ -70,20 +73,20 @@ fn main() {
     };
 
     if let Err(err) = result {
-        eprintln!("{}: {}", "error".red(), err.to_string());
+        log::error("", err);
     }
 }
 
-fn must_initialize() -> String {
+fn must_initialize() -> PathBuf {
     match initialize() {
         Err(err) => panic!("ERROR: failed to initialize call `{}`", err.to_string()),
         Ok(dir) => dir,
     }
 }
 
-fn initialize() -> Result<String, failure::Error> {
+fn initialize() -> Result<PathBuf, failure::Error> {
     let config_dir = match dirs::config_dir() {
-        None => panic!("ERROR: no config direction found for user"),
+        None => return Err(failure::format_err!("ERROR: no config directory found")),
         Some(config_dir) => config_dir.to_str().unwrap().to_string(),
     };
 
@@ -97,14 +100,10 @@ fn initialize() -> Result<String, failure::Error> {
         fs::create_dir(logging_path)?;
     }
 
-    Ok(Path::new(&config_dir)
-        .join("oasis")
-        .to_str()
-        .unwrap()
-        .to_string())
+    Ok(Path::new(&config_dir).join("oasis"))
 }
 
-fn generate_config(oasis_dir: String) -> config::Config {
+fn generate_config(oasis_dir: PathBuf) -> config::Config {
     let id = rand::random::<u64>();
     let timestamp = chrono::Utc::now().timestamp();
     let logdir = Path::new(&oasis_dir).join("log");
