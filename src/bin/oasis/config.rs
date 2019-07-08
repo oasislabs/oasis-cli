@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::{path, fs, io};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Wallet {
@@ -19,9 +20,9 @@ pub struct Profiles {
 
 #[derive(Clone, Debug)]
 pub struct Logging {
-    pub path_stdout: String,
-    pub path_stderr: String,
-    pub dir: String,
+    pub path_stdout: PathBuf,
+    pub path_stderr: PathBuf,
+    pub dir: PathBuf,
     pub enabled: bool,
 }
 
