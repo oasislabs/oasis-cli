@@ -254,10 +254,17 @@ fn run(
                     err.to_string()
                 ))
             }
-            Ok(_) => {}
+            Ok(opt) => match opt {
+                None => {}
+                Some(err) => println!(
+                    "WARN: error on capturing stdout output `{}`",
+                    err.to_string()
+                ),
+            },
         }
         let _ = thread.join();
     }
+
     if let Some(thread) = stderr_thread {
         match stderr_receiver.recv() {
             Err(err) => {
@@ -266,7 +273,13 @@ fn run(
                     err.to_string()
                 ))
             }
-            Ok(_) => {}
+            Ok(opt) => match opt {
+                None => {}
+                Some(err) => println!(
+                    "WARN: error on capturing stdout output `{}`",
+                    err.to_string()
+                ),
+            },
         }
 
         let _ = thread.join();
