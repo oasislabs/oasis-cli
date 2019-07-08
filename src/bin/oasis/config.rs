@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::{path, fs, io};
 
 #[derive(Clone, Debug)]
 pub struct Wallet {
@@ -13,7 +14,7 @@ pub struct Profile {
 #[derive(Clone, Debug)]
 pub struct Profiles {
     pub profiles: HashMap<String, Profile>,
-    pub default: String,
+    pub default: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -25,12 +26,51 @@ pub struct Logging {
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub profiles: Profile,
+    pub profiles: Profiles,
     pub logging: Logging,
 }
 
 impl Config {
-    fn load() -> Result<Self, failure::Error> {
+    pub fn default() -> Self {
+        Config{
+            logging: Logging {
+                path_stdout: String::new(),
+                path_stderr: String::new(),
+                enabled: false,
+            },
+            profiles: Profiles{
+                profiles: HashMap::new(),
+                default: None,
+            }
+        }
+    }
+
+    fn read_config(file: fs::File) -> Result<Self, failure::Error> {
         
+    }
+
+    fn generate_config() -> Result<Self, failure::Error> {
+        Ok(Config::default())
+    }
+
+    pub fn load(home: String) -> Result<Self, failure::Error> {
+        let config_path = path::Path::new(&home).join(".oasis").join("config");
+        let res = fs::OpenOptions::new()
+            .read(true)
+            .open(config_path);
+
+        match res {
+            Ok(file) => Config::read_config(file),
+            Err(err) => {
+                match err.kind() {
+                    io::ErrorKind::NotFound => {
+                        println!("WARN: failed to read config file, generating...");
+                        Config::generate_config()
+                    }
+                    _ => return Err(failure::format_err!("failed to read config file `{}` with error `{}`",
+                    config_path.to_str().unwrap(), err.to_string()))
+                }
+            },
+        }
     }
 }
