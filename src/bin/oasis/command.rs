@@ -78,8 +78,6 @@ pub trait OnOutputCallback {
 }
 
 pub struct CommandProps {
-    pub stdout: process::Stdio,
-    pub stderr: process::Stdio,
     pub on_stdout_callback: Option<Box<dyn OnOutputCallback + Send>>,
     pub on_stderr_callback: Option<Box<dyn OnOutputCallback + Send>>,
 }
@@ -100,13 +98,12 @@ pub fn run_cmd_with_env(
     verbosity: Verbosity,
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
 ) -> Result<(), failure::Error> {
-    use std::process::Stdio;
-    let (stdout, stderr) = if verbosity < Verbosity::Normal {
-        (Stdio::null(), Stdio::null())
+    let (stdout, stderr) : (Box<dyn Write>, Box<dyn Write>)= if verbosity < Verbosity::Normal {
+        (Box::new(io::sink()), Box::new(io::sink()))
     } else if verbosity == Verbosity::Verbose {
-        (Stdio::null(), Stdio::piped())
+        (Box::new(io::stdout()), Box::new(io::sink()))
     } else {
-        (Stdio::piped(), Stdio::piped())
+        (Box::new(io::stdout()), Box::new(io::stderr()))
     };
 
     let mut on_stdout_callback: Option<Box<(dyn OnOutputCallback + std::marker::Send + 'static)>> =
@@ -129,7 +126,7 @@ pub fn run_cmd_with_env(
             buf: ByteBuffer::new(),
             name: name,
             logtype: "stdout".to_string(),
-            out: Box::new(io::stdout()),
+            out: stdout,
             logger: Box::new(logfile_stdout),
         }));
     }
@@ -149,7 +146,7 @@ pub fn run_cmd_with_env(
             buf: ByteBuffer::new(),
             name: name,
             logtype: "stderr".to_string(),
-            out: Box::new(io::stderr()),
+            out: stderr,
             logger: Box::new(logfile_stderr),
         }));
     }
@@ -159,8 +156,6 @@ pub fn run_cmd_with_env(
         args,
         envs,
         CommandProps {
-            stdout,
-            stderr,
             on_stdout_callback: on_stdout_callback,
             on_stderr_callback: on_stderr_callback,
         },
@@ -178,8 +173,8 @@ fn run(
     let (stderr_sender, stderr_receiver) = channel();
 
     let mut child = cmd
-        .stdout(props.stdout)
-        .stderr(props.stderr)
+        .stdout(process::Stdio::piped())
+        .stderr(process::Stdio::piped())
         .args(args)
         .envs(envs)
         .spawn()
