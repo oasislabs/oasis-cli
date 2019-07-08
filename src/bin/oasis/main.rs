@@ -76,11 +76,8 @@ fn main() {
 
 fn must_initialize() -> String {
     match initialize() {
-        Err(err) => panic!(format!(
-            "ERROR: failed to initialize call `{}`",
-            err.to_string()
-        )),
-        Ok(dir) => dir
+        Err(err) => panic!("ERROR: failed to initialize call `{}`", err.to_string()),
+        Ok(dir) => dir,
     }
 }
 
@@ -100,7 +97,11 @@ fn initialize() -> Result<String, failure::Error> {
         fs::create_dir(logging_path)?;
     }
 
-    Ok(Path::new(&config_dir).join("oasis").to_str().unwrap().to_string())
+    Ok(Path::new(&config_dir)
+        .join("oasis")
+        .to_str()
+        .unwrap()
+        .to_string())
 }
 
 fn generate_config(oasis_dir: String) -> config::Config {

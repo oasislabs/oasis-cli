@@ -14,5 +14,6 @@ colored = "1.8"
 dirs = "2.0.1"
 failure = "0.1"
 mantle-rpc = { version = "0.1", features = ["import"] }
-walrus = "0.8"
 rand = "0.7"
+regex = "1.1"
+walrus = "0.8"
