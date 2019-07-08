@@ -54,9 +54,11 @@ impl<'a> OnOutputCallback for OutputLogger<'a> {
                 Utc::now(),
                 self.name,
                 self.logtype,
-                String::from_utf8(self.buf.to_bytes())
-                    .unwrap()
-                    .replace("\n", "\\n")
+                regex::escape(
+                    &String::from_utf8(self.buf.to_bytes())
+                        .unwrap()
+                        .replace("\n", "\\n")
+                )
             )?;
         }
 
@@ -138,7 +140,6 @@ pub fn run_cmd_with_env(
         let logfile_stderr = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
-            .write(true)
             .create(true)
             .open(&config.logging.path_stderr)
             .map_err(|e| {
@@ -278,11 +279,10 @@ fn run(
             _ => failure::format_err!("{}", e.to_string()),
         })?;
 
-    let stdout_thread: Option<thread::JoinHandle<()>> = None;
-    let stderr_thread: Option<thread::JoinHandle<()>> = None;
-
-    collect_output(child.stdout.take(), props.on_stdout_callback, stdout_sender)?;
-    collect_output(child.stderr.take(), props.on_stderr_callback, stderr_sender)?;
+    let stdout_thread: Option<thread::JoinHandle<()>> =
+        collect_output(child.stdout.take(), props.on_stdout_callback, stdout_sender)?;
+    let stderr_thread: Option<thread::JoinHandle<()>> =
+        collect_output(child.stderr.take(), props.on_stderr_callback, stderr_sender)?;
 
     finish_collection(stdout_thread, stdout_receiver)?;
     finish_collection(stderr_thread, stderr_receiver)?;
