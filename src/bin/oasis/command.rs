@@ -6,7 +6,7 @@ use std::{
 
 use chrono::Utc;
 
-use crate::config::Config;
+use crate::{config::Config, log};
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -19,7 +19,6 @@ pub enum Verbosity {
 
 struct OutputLogger<'a> {
     name: &'a str,
-    logtype: String,
     out: Box<dyn Write>,
     logger: Box<dyn Write>,
 }
@@ -27,19 +26,18 @@ struct OutputLogger<'a> {
 unsafe impl<'a> Send for OutputLogger<'a> {}
 
 impl<'a> OnOutputCallback for OutputLogger<'a> {
-    fn onstart(&mut self) -> Result<(), failure::Error> {
+    fn on_start(&mut self) -> Result<(), failure::Error> {
         write!(
             self.logger,
-            "{{\"date\": \"{}\", \"name\": \"{}\", \"logtype\": \"{}\", data\": \"",
+            "{{\"date\": \"{}\", \"name\": \"{}\", \"data\": \"",
             Utc::now(),
             self.name,
-            self.logtype,
         )?;
 
         Ok(())
     }
 
-    fn ondata(&mut self, output: &[u8]) -> Result<(), failure::Error> {
+    fn on_data(&mut self, output: &[u8]) -> Result<(), failure::Error> {
         self.out.write_all(output)?;
         write!(
             self.logger,
@@ -48,13 +46,14 @@ impl<'a> OnOutputCallback for OutputLogger<'a> {
                 &String::from_utf8(output.to_vec())
                     .unwrap()
                     .replace("\n", "\\n")
+                    .replace("\r", "\\r")
             )
         )?;
 
         Ok(())
     }
 
-    fn onend(&mut self) -> Result<(), failure::Error> {
+    fn on_end(&mut self) -> Result<(), failure::Error> {
         writeln!(self.logger, "\"}}")?;
         Ok(())
     }
@@ -72,9 +71,9 @@ impl From<u64> for Verbosity {
 }
 
 pub trait OnOutputCallback {
-    fn onstart(&mut self) -> Result<(), failure::Error>;
-    fn ondata(&mut self, output: &[u8]) -> Result<(), failure::Error>;
-    fn onend(&mut self) -> Result<(), failure::Error>;
+    fn on_start(&mut self) -> Result<(), failure::Error>;
+    fn on_data(&mut self, output: &[u8]) -> Result<(), failure::Error>;
+    fn on_end(&mut self) -> Result<(), failure::Error>;
 }
 
 pub struct CommandProps {
@@ -89,6 +88,33 @@ pub fn run_cmd(
     verbosity: Verbosity,
 ) -> Result<(), failure::Error> {
     run_cmd_with_env(config, name, args, verbosity, std::env::vars_os())
+}
+
+fn generate_collector(
+    enabled: bool,
+    verbosity: Verbosity,
+    name: &'static str,
+    out: Box<dyn Write>,
+    path: &std::path::PathBuf,
+) -> Result<Option<Box<dyn OnOutputCallback + Send + 'static>>, failure::Error> {
+    if enabled && verbosity >= Verbosity::Verbose {
+        let logfile = std::fs::OpenOptions::new()
+            .read(false)
+            .append(true)
+            .create(true)
+            .open(path)
+            .map_err(|e| {
+                failure::format_err!("failed to open logging file stdout {}", e.to_string())
+            })?;
+
+        Ok(Some(Box::new(OutputLogger {
+            name,
+            out,
+            logger: Box::new(logfile),
+        })))
+    } else {
+        Ok(None)
+    }
 }
 
 pub fn run_cmd_with_env(
@@ -106,46 +132,20 @@ pub fn run_cmd_with_env(
         (Box::new(io::stdout()), Box::new(io::stderr()))
     };
 
-    let mut on_stdout_callback: Option<Box<(dyn OnOutputCallback + std::marker::Send + 'static)>> =
-        None;
-    let mut on_stderr_callback: Option<Box<(dyn OnOutputCallback + std::marker::Send + 'static)>> =
-        None;
-
-    if config.logging.enabled && verbosity >= Verbosity::Verbose {
-        let logfile_stdout = std::fs::OpenOptions::new()
-            .read(false)
-            .append(true)
-            .create(true)
-            .open(&config.logging.path_stdout)
-            .map_err(|e| {
-                failure::format_err!("failed to open logging file stdout {}", e.to_string())
-            })?;
-
-        on_stdout_callback = Some(Box::new(OutputLogger {
-            name,
-            logtype: "stdout".to_string(),
-            out: stdout,
-            logger: Box::new(logfile_stdout),
-        }));
-    }
-
-    if config.logging.enabled && verbosity > Verbosity::Verbose {
-        let logfile_stderr = std::fs::OpenOptions::new()
-            .read(false)
-            .append(true)
-            .create(true)
-            .open(&config.logging.path_stderr)
-            .map_err(|e| {
-                failure::format_err!("failed to open logging file stderr {}", e.to_string())
-            })?;
-
-        on_stderr_callback = Some(Box::new(OutputLogger {
-            name,
-            logtype: "stderr".to_string(),
-            out: stderr,
-            logger: Box::new(logfile_stderr),
-        }));
-    }
+    let on_stdout_callback = generate_collector(
+        config.logging.enabled,
+        verbosity,
+        name,
+        stdout,
+        &config.logging.path_stdout,
+    )?;
+    let on_stderr_callback = generate_collector(
+        config.logging.enabled,
+        verbosity,
+        name,
+        stderr,
+        &config.logging.path_stderr,
+    )?;
 
     run(
         name,
@@ -167,37 +167,28 @@ fn collect_output<O: Read + Send + 'static>(
         if let Some(mut on_output_callback) = on_output_callback {
             return Ok(Some(thread::spawn(move || {
                 let mut buffer = [0; 4096];
-                if let Err(err) = on_output_callback.onstart() {
-                    println!(
-                        "WARN: error occurred on starting output collection `{}`",
-                        err.to_string()
-                    );
+                if let Err(err) = on_output_callback.on_start() {
+                    log::warn("error occurred on starting output collection", err);
                 }
 
                 loop {
                     match out.read(&mut buffer[..]) {
                         Ok(rbytes) => {
                             if rbytes == 0 {
-                                if let Err(err) = on_output_callback.onend() {
-                                    println!(
-                                        "WARN: error occurred on ending output collection `{}`",
-                                        err.to_string()
-                                    );
+                                if let Err(err) = on_output_callback.on_end() {
+                                    log::warn("error occurred on ending output collection", err);
                                 }
 
                                 if let Err(err) = sender.send(None) {
-                                    println!(
-                                        "ERROR: failed to return successful result from thread `{}`",
-                                        err.to_string()
+                                    log::error(
+                                        "failed to return successful result from thread",
+                                        err,
                                     );
                                 }
                                 return;
                             }
-                            if let Err(err) = on_output_callback.ondata(&buffer[0..rbytes]) {
-                                println!(
-                                    "WARN: error occurred on output collection `{}`",
-                                    err.to_string()
-                                );
+                            if let Err(err) = on_output_callback.on_data(&buffer[0..rbytes]) {
+                                log::warn("error occurred on output collection", err);
                             }
                         }
                         Err(err) => {
@@ -205,10 +196,7 @@ fn collect_output<O: Read + Send + 'static>(
                                 "failed to receive error `{}`",
                                 err.to_string()
                             ))) {
-                                println!(
-                                    "ERROR: failed to return error result from thread `{}`",
-                                    err.to_string()
-                                );
+                                log::error("failed to return error result from thread", err);
                             }
                             return;
                         }
@@ -235,7 +223,7 @@ fn finish_collection(
             }
             Ok(opt) => match opt {
                 None => {}
-                Some(err) => println!("WARN: error on capturing output `{}`", err.to_string()),
+                Some(err) => log::warn("error on capturing output", err),
             },
         }
 
