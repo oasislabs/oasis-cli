@@ -9,6 +9,7 @@ mod command;
 mod config;
 mod utils;
 
+use colored::*;
 use std::{fs, path::Path};
 
 fn main() {
@@ -46,11 +47,7 @@ fn main() {
     );
 
     let env = Env::generate();
-    if let Err(err) = ensure_initialization(&env) {
-        use colored::*;
-        eprintln!("{}: {}", "error".red(), err.to_string());
-        std::process::exit(1);
-    }
+    must_initialize(&env);
 
     let config = generate_config(&env);
 
@@ -62,7 +59,7 @@ fn main() {
 
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
-        ("build", Some(m)) => cmd_build::BuildOptions::new(&config, &m).and_then(cmd_build::build),
+        ("build", Some(m)) => cmd_build::BuildOptions::new(config, &m).and_then(cmd_build::build),
         ("clean", Some(_)) => cmd_clean::clean(&config),
         ("ifextract", Some(m)) => cmd_ifextract::ifextract(
             m.value_of("SERVICE_URL").unwrap(),
@@ -75,7 +72,6 @@ fn main() {
     };
 
     if let Err(err) = result {
-        use colored::*;
         eprintln!("{}: {}", "error".red(), err.to_string());
     }
 }
@@ -95,7 +91,16 @@ impl Env {
     }
 }
 
-fn ensure_initialization(env: &Env) -> Result<(), failure::Error> {
+fn must_initialize(env: &Env) {
+    if let Err(err) = initialize(env) {
+        panic!(format!(
+            "ERROR: failed to initialize call `{}`",
+            err.to_string()
+        ))
+    }
+}
+
+fn initialize(env: &Env) -> Result<(), failure::Error> {
     match &env.home {
         None => println!("WARN: no home directoy found for user"),
         Some(home) => {
