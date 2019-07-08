@@ -111,15 +111,7 @@ fn ensure_initialization(env: &Env) -> Result<(), failure::Error> {
 
 fn generate_config(env: &Env) -> config::Config {
     let home = match &env.home {
-        None => {
-            return config::Config {
-                logging: config::Logging {
-                    path_stdout: String::new(),
-                    path_stderr: String::new(),
-                    enabled: false,
-                },
-            }
-        }
+        None => return config::Config::default(),
         Some(home) => home,
     };
 
