@@ -30,7 +30,8 @@ jobs:
       - run:
           name: Clippy
           command: |
-            (rustup component add clippy && cargo clippy --all-features -- -D clippy::all) || true
+            rustup component add clippy || exit 0
+            cargo clippy --all-features -- -D clippy::all
 
 
 workflows:
