@@ -106,7 +106,7 @@ fn initialize() -> Result<PathBuf, failure::Error> {
     Ok(Path::new(&config_dir).join("oasis"))
 }
 
-fn parse_config(oasis_dir: String) -> Result<config::Config, failure::Error> {
+fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     let config_path = Path::new(&oasis_dir).join("config");
     config::Config::load(config_path.to_str().unwrap())
 }
