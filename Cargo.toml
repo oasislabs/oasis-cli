@@ -6,7 +6,9 @@ authors = ["Oasis Labs <feedback@oasislabs.com>"]
 edition = "2018"
 
 [dependencies]
+bytebuffer = "0.2"
 cargo_toml = "0.6"
+chrono = "0.4"
 clap = "2.33"
 colored = "1.8"
 failure = "0.1"

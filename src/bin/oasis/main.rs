@@ -5,6 +5,8 @@ mod cmd_build;
 mod cmd_clean;
 mod cmd_ifextract;
 mod cmd_init;
+mod command;
+mod config;
 mod utils;
 
 fn main() {
@@ -41,6 +43,12 @@ fn main() {
         )
     );
 
+    let config = config::Config {
+        logpath_stdout: "/users/estanislauauge-pujadas/.oasis/logging.stdout".to_string(),
+        logpath_stderr: "/users/estanislauauge-pujadas/.oasis/logging.stderr".to_string(),
+        logenabled: true,
+    };
+
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
@@ -48,9 +56,9 @@ fn main() {
     let app_m = app.get_matches();
 
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => cmd_init::init(m.value_of("NAME").unwrap_or("."), "rust"),
-        ("build", Some(m)) => cmd_build::BuildOptions::new(&m).and_then(cmd_build::build),
-        ("clean", Some(_)) => cmd_clean::clean(),
+        ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
+        ("build", Some(m)) => cmd_build::BuildOptions::new(&config, &m).and_then(cmd_build::build),
+        ("clean", Some(_)) => cmd_clean::clean(&config),
         ("ifextract", Some(m)) => cmd_ifextract::ifextract(
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
