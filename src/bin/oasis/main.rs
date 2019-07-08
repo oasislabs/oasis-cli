@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate clap;
 
+use std::{fs, path};
+
 mod cmd_build;
 mod cmd_clean;
 mod cmd_ifextract;
@@ -8,6 +10,68 @@ mod cmd_init;
 mod command;
 mod config;
 mod utils;
+
+struct Env {
+    pub home: Option<String>,
+}
+
+impl Env {
+    fn generate() -> Env {
+        Env {
+            home: match dirs::home_dir() {
+                None => None,
+                Some(home) => Some(home.to_str().unwrap().to_string()),
+            },
+        }
+    }
+}
+
+fn ensure_initialization(env: &Env) -> Result<(), failure::Error> {
+    match &env.home {
+        None => println!("WARN: no home directoy found for user"),
+        Some(home) => {
+            let oasis_path = path::Path::new(home).join(".oasis");
+            if !oasis_path.exists() {
+                fs::create_dir(oasis_path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn generate_config(env: &Env) -> config::Config {
+    let home = match &env.home {
+        None => {
+            return config::Config {
+                logging: config::Logging {
+                    path_stdout: String::new(),
+                    path_stderr: String::new(),
+                    enabled: false,
+                },
+            }
+        }
+        Some(home) => home,
+    };
+
+    return config::Config {
+        logging: config::Logging {
+            path_stdout: path::Path::new(home)
+                .join(".oasis")
+                .join("logging.stdout")
+                .to_str()
+                .unwrap()
+                .to_string(),
+            path_stderr: path::Path::new(home)
+                .join(".oasis")
+                .join("logging.stderr")
+                .to_str()
+                .unwrap()
+                .to_string(),
+            enabled: true,
+        },
+    };
+}
 
 fn main() {
     let mut app = clap_app!(oasis =>
@@ -43,11 +107,14 @@ fn main() {
         )
     );
 
-    let config = config::Config {
-        logpath_stdout: "/users/estanislauauge-pujadas/.oasis/logging.stdout".to_string(),
-        logpath_stderr: "/users/estanislauauge-pujadas/.oasis/logging.stderr".to_string(),
-        logenabled: true,
-    };
+    let env = Env::generate();
+    if let Err(err) = ensure_initialization(&env) {
+        use colored::*;
+        eprintln!("{}: {}", "error".red(), err.to_string());
+        std::process::exit(1);
+    }
+
+    let config = generate_config(&env);
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
@@ -68,6 +135,7 @@ fn main() {
             return;
         }
     };
+
     if let Err(err) = result {
         use colored::*;
         eprintln!("{}: {}", "error".red(), err.to_string());

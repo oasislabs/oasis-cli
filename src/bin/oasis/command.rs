@@ -114,13 +114,13 @@ pub fn run_cmd_with_env(
     let mut on_stderr_callback: Option<Box<(dyn OnOutputCallback + std::marker::Send + 'static)>> =
         None;
 
-    if config.logenabled && verbosity >= Verbosity::Verbose {
+    if config.logging.enabled && verbosity >= Verbosity::Verbose {
         let logfile_stdout = fs::OpenOptions::new()
             .read(false)
             .append(true)
             .write(true)
             .create(true)
-            .open(&config.logpath_stdout)
+            .open(&config.logging.path_stdout)
             .map_err(|e| {
                 failure::format_err!("failed to open logging file stdout {}", e.to_string())
             })?;
@@ -134,13 +134,13 @@ pub fn run_cmd_with_env(
         }));
     }
 
-    if config.logenabled && verbosity > Verbosity::Verbose {
+    if config.logging.enabled && verbosity > Verbosity::Verbose {
         let logfile_stderr = fs::OpenOptions::new()
             .read(false)
             .append(true)
             .write(true)
             .create(true)
-            .open(&config.logpath_stderr)
+            .open(&config.logging.path_stderr)
             .map_err(|e| {
                 failure::format_err!("failed to open logging file stderr {}", e.to_string())
             })?;

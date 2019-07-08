@@ -13,4 +13,5 @@ failure = "0.1"
 walrus = "0.8"
 bytebuffer = "0.2"
 chrono = "0.4"
+dirs = "2.0.1"
 mantle-rpc = { version = "0.1", features = ["import"] }
