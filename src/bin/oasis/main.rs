@@ -103,19 +103,7 @@ fn initialize() -> Result<PathBuf, failure::Error> {
     Ok(Path::new(&config_dir).join("oasis"))
 }
 
-fn generate_config(oasis_dir: PathBuf) -> config::Config {
-    let id = rand::random::<u64>();
-    let timestamp = chrono::Utc::now().timestamp();
-    let logdir = Path::new(&oasis_dir).join("log");
-
-    config::Config {
-        id,
-        timestamp,
-        logging: config::Logging {
-            path_stdout: Path::new(&logdir).join(format!("{}.{}.stdout", timestamp, id)),
-            path_stderr: Path::new(&logdir).join(format!("{}.{}.stderr", timestamp, id)),
-            dir: logdir,
-            enabled: true,
-        },
-    }
+fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
+    let config_path = Path::new(&oasis_dir).join("config");
+    config::Config::load(config_path.to_str().unwrap())
 }

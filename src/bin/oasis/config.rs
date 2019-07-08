@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-use std::{path, fs, io};
-use std::path::PathBuf;
+use crate::log;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{self, Read as _, Write as _},
+    path,
+};
 
-#[derive(Clone, Debug)]
-pub struct Wallet {
-    pub private_key: String,
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Profile {
-    pub wallet: Wallet,
+    pub private_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -34,47 +34,102 @@ pub struct Config {
     pub logging: Logging,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LoggingParse {
+    pub dir: path::PathBuf,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConfigParse {
+    pub logging: LoggingParse,
+    pub profile: HashMap<String, Profile>,
+}
+
 impl Config {
-    pub fn default() -> Self {
-        Config{
-            logging: Logging {
-                path_stdout: String::new(),
-                path_stderr: String::new(),
-                enabled: false,
-            },
-            profiles: Profiles{
-                profiles: HashMap::new(),
-                default: None,
-            }
-        }
-    }
-
     fn read_config(file: fs::File) -> Result<Self, failure::Error> {
-        
+        let mut reader = io::BufReader::new(file);
+        let mut content = String::new();
+        reader.read_to_string(&mut content)?;
+        let config: ConfigParse = toml::from_str(&content)?;
+
+        let id = rand::random::<u64>();
+        let timestamp = chrono::Utc::now().timestamp();
+
+        Ok(Config {
+            id,
+            timestamp,
+            logging: Logging {
+                path_stdout: path::Path::new(&config.logging.dir)
+                    .join(format!("{}.{}.stdout", timestamp, id)),
+                path_stderr: path::Path::new(&config.logging.dir)
+                    .join(format!("{}.{}.stderr", timestamp, id)),
+                dir: config.logging.dir,
+                enabled: config.logging.enabled,
+            },
+            profiles: Profiles {
+                default: if config.profile.contains_key("default") {
+                    Some("default".to_string())
+                } else {
+                    None
+                },
+                profiles: config.profile,
+            },
+        })
     }
 
-    fn generate_config() -> Result<Self, failure::Error> {
-        Ok(Config::default())
+    fn generate(path: &str) -> Result<(), failure::Error> {
+        let config_dir = match dirs::config_dir() {
+            None => return Err(failure::format_err!("no config directory found")),
+            Some(config_dir) => config_dir.to_str().unwrap().to_string(),
+        };
+        let log_dir = path::Path::new(&config_dir).join("log");
+
+        let file = fs::OpenOptions::new().write(true).create(true).open(path)?;
+
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "default".to_string(),
+            Profile {
+                private_key: String::new(),
+            },
+        );
+
+        let mut writer = io::BufWriter::new(file);
+        let content = toml::to_string(&ConfigParse {
+            logging: LoggingParse {
+                enabled: false,
+                dir: log_dir,
+            },
+            profile: profiles,
+        })?;
+        writer.write_all(&content.into_bytes())?;
+        Ok(())
     }
 
-    pub fn load(home: String) -> Result<Self, failure::Error> {
-        let config_path = path::Path::new(&home).join(".oasis").join("config");
-        let res = fs::OpenOptions::new()
-            .read(true)
-            .open(config_path);
+    pub fn load(path: &str) -> Result<Self, failure::Error> {
+        let config_path = path::Path::new(path);
+
+        if !config_path.exists() {
+            log::info(
+                "",
+                failure::format_err!(
+                    "no configuration file found. Generating configuration file {}",
+                    path
+                ),
+            );
+            Config::generate(path)?;
+        }
+
+        let res = fs::OpenOptions::new().read(true).open(config_path);
 
         match res {
             Ok(file) => Config::read_config(file),
-            Err(err) => {
-                match err.kind() {
-                    io::ErrorKind::NotFound => {
-                        println!("WARN: failed to read config file, generating...");
-                        Config::generate_config()
-                    }
-                    _ => return Err(failure::format_err!("failed to read config file `{}` with error `{}`",
-                    config_path.to_str().unwrap(), err.to_string()))
-                }
-            },
+            Err(err) => Err(failure::format_err!(
+                "failed to read config file `{}` with error `{}`",
+                path,
+                err.to_string()
+            )),
         }
     }
 }
