@@ -10,6 +10,7 @@ mod cmd_ifextract;
 mod cmd_init;
 mod command;
 mod config;
+mod error;
 mod utils;
 
 use std::{
