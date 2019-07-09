@@ -20,7 +20,7 @@ use std::{
 fn main() {
     let mut log_builder = env_logger::Builder::from_default_env();
     log_builder.format(log_format);
-    env_logger::init();
+    log_builder.init();
 
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
@@ -111,6 +111,17 @@ fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     config::Config::load(config_path.to_str().unwrap())
 }
 
-fn log_format(_fmt: &mut env_logger::fmt::Formatter, _record: &log::Record) -> std::io::Result<()> {
-    Ok(())
+fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
+    use colored::*;
+    use std::io::Write as _;
+
+    let level = match record.level() {
+        log::Level::Trace => "trace".bold().white(),
+        log::Level::Debug => "debug".bold().white(),
+        log::Level::Info => "info".bold().blue(),
+        log::Level::Warn => "warning".bold().yellow(),
+        log::Level::Error => "error".bold().red(),
+    };
+
+    writeln!(fmt, "{}: {}", level, record.args())
 }
