@@ -1,4 +1,3 @@
-use crate::log;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -111,12 +110,9 @@ impl Config {
         let config_path = path::Path::new(path);
 
         if !config_path.exists() {
-            log::info(
-                "",
-                failure::format_err!(
-                    "no configuration file found. Generating configuration file {}",
-                    path
-                ),
+            info!(
+                "no configuration file found. Generating configuration file {}",
+                path
             );
             Config::generate(path)?;
         }

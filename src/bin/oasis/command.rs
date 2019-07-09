@@ -6,7 +6,7 @@ use std::{
 
 use chrono::Utc;
 
-use crate::{config::Config, log};
+use crate::{config::Config, error::Error};
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -96,16 +96,14 @@ fn generate_collector(
     name: &'static str,
     out: Box<dyn Write>,
     path: &std::path::PathBuf,
-) -> Result<Option<Box<dyn OnOutputCallback + Send + 'static>>, failure::Error> {
+) -> Result<Option<Box<dyn OnOutputCallback + Send + 'static>>, Error> {
     if enabled && verbosity >= Verbosity::Verbose {
         let logfile = std::fs::OpenOptions::new()
             .read(false)
             .append(true)
             .create(true)
             .open(path)
-            .map_err(|e| {
-                failure::format_err!("failed to open logging file stdout {}", e.to_string())
-            })?;
+            .map_err(|e| Error::OpenLogFile(e.to_string()))?;
 
         Ok(Some(Box::new(OutputLogger {
             name,
@@ -161,75 +159,59 @@ pub fn run_cmd_with_env(
 fn collect_output<O: Read + Send + 'static>(
     out: Option<O>,
     on_output_callback: Option<Box<dyn OnOutputCallback + Send>>,
-    sender: std::sync::mpsc::Sender<Option<failure::Error>>,
-) -> Result<Option<thread::JoinHandle<()>>, failure::Error> {
-    if let Some(mut out) = out {
-        if let Some(mut on_output_callback) = on_output_callback {
-            return Ok(Some(thread::spawn(move || {
-                let mut buffer = [0; 4096];
-                if let Err(err) = on_output_callback.on_start() {
-                    log::warn("error occurred on starting output collection", err);
-                }
+    sender: std::sync::mpsc::Sender<Option<Error>>,
+) -> Option<thread::JoinHandle<()>> {
+    let (mut out, mut on_output_callback) = match (out, on_output_callback) {
+        (Some(out), Some(on_output_callback)) => (out, on_output_callback),
+        _ => return None,
+    };
+    Some(thread::spawn(move || {
+        let mut buffer = [0; 4096];
+        if let Err(err) = on_output_callback.on_start() {
+            warn!("error occurred on starting output collection: {}", err);
+        }
 
-                loop {
-                    match out.read(&mut buffer[..]) {
-                        Ok(rbytes) => {
-                            if rbytes == 0 {
-                                if let Err(err) = on_output_callback.on_end() {
-                                    log::warn("error occurred on ending output collection", err);
-                                }
-
-                                if let Err(err) = sender.send(None) {
-                                    log::error(
-                                        "failed to return successful result from thread",
-                                        err,
-                                    );
-                                }
-                                return;
-                            }
-                            if let Err(err) = on_output_callback.on_data(&buffer[0..rbytes]) {
-                                log::warn("error occurred on output collection", err);
-                            }
+        loop {
+            match out.read(&mut buffer[..]) {
+                Ok(rbytes) => {
+                    if rbytes == 0 {
+                        if let Err(err) = on_output_callback.on_end() {
+                            error!("error occurred on ending output collection: {}", err);
                         }
-                        Err(err) => {
-                            if let Err(err) = sender.send(Some(failure::format_err!(
-                                "failed to receive error `{}`",
-                                err.to_string()
-                            ))) {
-                                log::error("failed to return error result from thread", err);
-                            }
-                            return;
+                        if let Err(err) = sender.send(None) {
+                            error!("failed to return successful result from thread: {}", err);
                         }
+                        return;
+                    }
+                    if let Err(err) = on_output_callback.on_data(&buffer[0..rbytes]) {
+                        error!("error occurred on output collection: {}", err);
                     }
                 }
-            })));
+                Err(err) => {
+                    if let Err(err) = sender.send(Some(Error::ReadProcessOutput(err.to_string()))) {
+                        error!("failed to return error result from thread: {}", err);
+                    }
+                    return;
+                }
+            }
         }
-    }
-
-    Ok(None)
+    }))
 }
 
 fn finish_collection(
     thread: Option<thread::JoinHandle<()>>,
-    receiver: std::sync::mpsc::Receiver<Option<failure::Error>>,
+    receiver: std::sync::mpsc::Receiver<Option<Error>>,
 ) -> Result<(), failure::Error> {
     if let Some(thread) = thread {
         match receiver.recv() {
-            Err(err) => {
-                return Err(failure::format_err!(
-                    "Failed to receive thread result `{}`",
-                    err.to_string()
-                ))
-            }
+            Err(err) => return Err(Error::RecvThreadResult(err.to_string()).into()),
             Ok(opt) => match opt {
                 None => {}
-                Some(err) => log::warn("error on capturing output", err),
+                Some(err) => return Err(Error::CaptureOutput(err.to_string()).into()),
             },
         }
 
-        thread
-            .join()
-            .map_err(|_| failure::format_err!("Failed to join thread"))?;
+        thread.join().map_err(|_| Error::JoinThread)?;
     }
 
     Ok(())
@@ -252,32 +234,25 @@ fn run(
         .envs(envs)
         .spawn()
         .map_err(|e| match e.kind() {
-            io::ErrorKind::NotFound => failure::format_err!(
-                "Could not run `{}`, please make sure it is in your PATH.",
-                name
-            ),
-            _ => failure::format_err!("{}", e.to_string()),
+            io::ErrorKind::NotFound => Error::ExecNotFound(name.to_string()),
+            _ => Error::Unknown(e.to_string()),
         })?;
 
     let stdout_thread: Option<thread::JoinHandle<()>> =
-        collect_output(child.stdout.take(), props.on_stdout_callback, stdout_sender)?;
+        collect_output(child.stdout.take(), props.on_stdout_callback, stdout_sender);
     let stderr_thread: Option<thread::JoinHandle<()>> =
-        collect_output(child.stderr.take(), props.on_stderr_callback, stderr_sender)?;
+        collect_output(child.stderr.take(), props.on_stderr_callback, stderr_sender);
 
     finish_collection(stdout_thread, stdout_receiver)?;
     finish_collection(stderr_thread, stderr_receiver)?;
 
     let status = child
         .wait()
-        .map_err(|e| failure::format_err!("{}", e.to_string()))?;
+        .map_err(|err| Error::Unknown(err.to_string()))?;
 
     if status.success() {
         Ok(())
     } else {
-        Err(failure::format_err!(
-            "Processes `{}` exited with code `{}`",
-            name,
-            status.code().unwrap()
-        ))
+        Err(Error::ProcessExit(name.to_string(), status.code().unwrap()).into())
     }
 }

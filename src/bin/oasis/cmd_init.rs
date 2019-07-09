@@ -1,16 +1,14 @@
 use crate::{
     command::{run_cmd, Verbosity},
     config::Config,
+    error::Error,
 };
 
 /// Creates an Oasis project in a directory.
 pub fn init(config: &Config, dir: &str, project_type: &str) -> Result<(), failure::Error> {
     match project_type {
         "rust" => init_rust(config, dir),
-        _ => Err(failure::format_err!(
-            "Unknown project type: `{}`",
-            project_type
-        )),
+        _ => Err(Error::UnknownProjectType(project_type.to_string()).into()),
     }
 }
 
