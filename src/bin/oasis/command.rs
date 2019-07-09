@@ -178,7 +178,7 @@ fn collect_output<O: Read + Send + 'static>(
                 Ok(rbytes) => {
                     if rbytes == 0 {
                         if let Err(err) = on_output_callback.on_end() {
-                            warn!("error occurred on ending output collection: {}", err);
+                            error!("error occurred on ending output collection: {}", err);
                         }
                         if let Err(err) = sender.send(None) {
                             error!("failed to return successful result from thread: {}", err);
@@ -186,7 +186,7 @@ fn collect_output<O: Read + Send + 'static>(
                         return;
                     }
                     if let Err(err) = on_output_callback.on_data(&buffer[0..rbytes]) {
-                        warn!("error occurred on output collection: {}", err);
+                        error!("error occurred on output collection: {}", err);
                     }
                 }
                 Err(err) => {
@@ -207,24 +207,31 @@ fn finish_collection(
     thread: Option<thread::JoinHandle<()>>,
     receiver: std::sync::mpsc::Receiver<Option<failure::Error>>,
 ) -> Result<(), failure::Error> {
-    match receiver.recv() {
-        Ok(None) => thread
-            .map(|thread| {
-                thread
-                    .join()
-                    .map(|_| ())
-                    .map_err(|_| failure::format_err!("Failed to join thread"))
-            })
-            .unwrap_or_else(|| Ok(())),
-        Ok(Some(err)) => Err(failure::format_err!(
-            "Could not capture logging output: {}",
-            err.to_string()
-        )),
-        Err(err) => Err(failure::format_err!(
-            "Failed to receive thread result `{}`",
-            err.to_string()
-        )),
+    if let Some(thread) = thread {
+        match receiver.recv() {
+            Err(err) => {
+                return Err(failure::format_err!(
+                    "Failed to receive thread result `{}`",
+                    err.to_string()
+                ))
+            }
+            Ok(opt) => match opt {
+                None => {}
+                Some(err) => {
+                    return Err(failure::format_err!(
+                        "Error capturing output `{}`",
+                        err.to_string()
+                    ))
+                }
+            },
+        }
+
+        thread
+            .join()
+            .map_err(|_| failure::format_err!("Failed to join thread"))?;
     }
+
+    Ok(())
 }
 
 fn run(
