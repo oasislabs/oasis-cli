@@ -10,8 +10,6 @@ pub enum Error {
     ProcessExit(String, i32),
     #[fail(display = "failed to read config file `{}` with error `{}`", _0, _1)]
     ConfigParse(String, String),
-    #[fail(display = "user configuration directory not found")]
-    ConfigDirNotFound,
     #[fail(
         display = "could not run `{}`, please make sure it is in your PATH.",
         _0

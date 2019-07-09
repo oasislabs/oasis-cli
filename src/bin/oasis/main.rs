@@ -56,6 +56,12 @@ fn main() {
         )
     );
 
+    let config_dir = ensure_oasis_dirs().unwrap();
+    let config = match parse_config(config_dir) {
+        Err(err) => panic!("failed to load configuration `{}`", err.to_string()),
+        Ok(config) => config,
+    };
+
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
@@ -109,7 +115,7 @@ fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
 
 fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     let config_path = Path::new(&oasis_dir).join("config");
-    config::Config::load(config_path.to_str().unwrap())
+    config::Config::load(&config_path)
 }
 
 fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
