@@ -18,6 +18,10 @@ use std::{
 };
 
 fn main() {
+    let mut log_builder = env_logger::Builder::from_default_env();
+    log_builder.format(log_format);
+    env_logger::init();
+
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
         (version: crate_version!())
@@ -64,8 +68,6 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let mut log_builder = env_logger::Builder::from_default_env();
-    log_builder.format(log_format);
 
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
@@ -109,6 +111,6 @@ fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     config::Config::load(config_path.to_str().unwrap())
 }
 
-fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
+fn log_format(_fmt: &mut env_logger::fmt::Formatter, _record: &log::Record) -> std::io::Result<()> {
     Ok(())
 }
