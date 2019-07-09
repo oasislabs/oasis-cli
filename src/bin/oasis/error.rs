@@ -8,6 +8,10 @@ pub enum Error {
     ReadProcessOutput(String),
     #[fail(display = "process `{}` exited with code `{}`", _0, _1)]
     ProcessExit(String, i32),
+    #[fail(display = "failed to read config file `{}` with error `{}`", _0, _1)]
+    ConfigParse(String, String),
+    #[fail(display = "user configuration directory not found")]
+    ConfigDirNotFound,
     #[fail(
         display = "could not run `{}`, please make sure it is in your PATH.",
         _0

@@ -7,6 +7,8 @@ use std::{
     path,
 };
 
+use crate::error::Error;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Profile {
     pub private_key: String,
@@ -80,10 +82,10 @@ impl Config {
 
     fn generate(path: &str) -> Result<(), failure::Error> {
         let config_dir = match dirs::config_dir() {
-            None => return Err(failure::format_err!("no config directory found")),
+            None => return Err(Error::ConfigDirNotFound.into()),
             Some(config_dir) => config_dir.to_str().unwrap().to_string(),
         };
-        let log_dir = path::Path::new(&config_dir).join("log");
+        let log_dir = path::Path::new(&config_dir).join("oasis").join("log");
 
         let file = fs::OpenOptions::new().write(true).create(true).open(path)?;
 
@@ -125,11 +127,7 @@ impl Config {
 
         match res {
             Ok(file) => Config::read_config(file),
-            Err(err) => Err(failure::format_err!(
-                "failed to read config file `{}` with error `{}`",
-                path,
-                err.to_string()
-            )),
+            Err(err) => Err(Error::ConfigParse(path.to_string(), err.to_string()).into()),
         }
     }
 }

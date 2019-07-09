@@ -77,8 +77,8 @@ pub trait OnOutputCallback {
 }
 
 pub struct CommandProps {
-    pub on_stdout_callback: Option<Box<dyn OnOutputCallback + Send>>,
-    pub on_stderr_callback: Option<Box<dyn OnOutputCallback + Send>>,
+    pub on_stdout_callback: Box<dyn OnOutputCallback + Send>,
+    pub on_stderr_callback: Box<dyn OnOutputCallback + Send>,
 }
 
 pub fn run_cmd(
@@ -92,27 +92,28 @@ pub fn run_cmd(
 
 fn generate_collector(
     enabled: bool,
-    verbosity: Verbosity,
     name: &'static str,
     out: Box<dyn Write>,
     path: &std::path::PathBuf,
-) -> Result<Option<Box<dyn OnOutputCallback + Send + 'static>>, Error> {
-    if enabled && verbosity >= Verbosity::Verbose {
-        let logfile = std::fs::OpenOptions::new()
-            .read(false)
-            .append(true)
-            .create(true)
-            .open(path)
-            .map_err(|e| Error::OpenLogFile(e.to_string()))?;
-
-        Ok(Some(Box::new(OutputLogger {
-            name,
-            out,
-            logger: Box::new(logfile),
-        })))
+) -> Result<Box<dyn OnOutputCallback + Send + 'static>, Error> {
+    let logfile: Box<dyn Write> = if enabled {
+        Box::new(
+            std::fs::OpenOptions::new()
+                .read(false)
+                .append(true)
+                .create(true)
+                .open(path)
+                .map_err(|e| Error::OpenLogFile(e.to_string()))?,
+        )
     } else {
-        Ok(None)
-    }
+        Box::new(std::io::sink())
+    };
+
+    Ok(Box::new(OutputLogger {
+        name,
+        out,
+        logger: logfile,
+    }))
 }
 
 pub fn run_cmd_with_env(
@@ -132,14 +133,12 @@ pub fn run_cmd_with_env(
 
     let on_stdout_callback = generate_collector(
         config.logging.enabled,
-        verbosity,
         name,
         stdout,
         &config.logging.path_stdout,
     )?;
     let on_stderr_callback = generate_collector(
         config.logging.enabled,
-        verbosity,
         name,
         stderr,
         &config.logging.path_stderr,
@@ -158,13 +157,14 @@ pub fn run_cmd_with_env(
 
 fn collect_output<O: Read + Send + 'static>(
     out: Option<O>,
-    on_output_callback: Option<Box<dyn OnOutputCallback + Send>>,
+    mut on_output_callback: Box<dyn OnOutputCallback + Send>,
     sender: std::sync::mpsc::Sender<Option<Error>>,
 ) -> Option<thread::JoinHandle<()>> {
-    let (mut out, mut on_output_callback) = match (out, on_output_callback) {
-        (Some(out), Some(on_output_callback)) => (out, on_output_callback),
+    let mut out = match out {
+        Some(out) => out,
         _ => return None,
     };
+
     Some(thread::spawn(move || {
         let mut buffer = [0; 4096];
         if let Err(err) = on_output_callback.on_start() {
