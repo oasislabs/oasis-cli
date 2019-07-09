@@ -1,5 +1,8 @@
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 mod cmd_build;
 mod cmd_clean;
@@ -7,7 +10,6 @@ mod cmd_ifextract;
 mod cmd_init;
 mod command;
 mod config;
-mod log;
 mod utils;
 
 use std::{
@@ -49,14 +51,21 @@ fn main() {
         )
     );
 
-    let config_dir = must_initialize();
-    let config = generate_config(config_dir);
-
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
+
+    let config = match generate_config() {
+        Ok(config) => config,
+        Err(err) => {
+            error!("{}", err);
+            std::process::exit(1);
+        }
+    };
+    let mut log_builder = env_logger::Builder::from_default_env();
+    log_builder.format(log_format);
 
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
@@ -73,37 +82,33 @@ fn main() {
     };
 
     if let Err(err) = result {
-        log::error("", err);
+        error!("{}", err);
+        std::process::exit(1);
     }
 }
 
-fn must_initialize() -> PathBuf {
-    match initialize() {
-        Err(err) => panic!("ERROR: failed to initialize call `{}`", err.to_string()),
-        Ok(dir) => dir,
-    }
-}
-
-fn initialize() -> Result<PathBuf, failure::Error> {
-    let config_dir = match dirs::config_dir() {
-        None => return Err(failure::format_err!("ERROR: no config directory found")),
-        Some(config_dir) => config_dir.to_str().unwrap().to_string(),
+fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
+    let oasis_dir = match dirs::config_dir() {
+        Some(mut config_dir) => {
+            config_dir.push("oasis");
+            config_dir
+        }
+        None => return Err(failure::format_err!("could not resolve user config dir")),
     };
 
-    let oasis_path = Path::new(&config_dir).join("oasis");
-    if !oasis_path.exists() {
-        fs::create_dir(oasis_path)?;
+    let log_dir = oasis_dir.join("log");
+    if !log_dir.is_dir() {
+        fs::create_dir_all(log_dir)?;
     }
 
-    let logging_path = Path::new(&config_dir).join("oasis").join("log");
-    if !logging_path.exists() {
-        fs::create_dir(logging_path)?;
-    }
-
-    Ok(Path::new(&config_dir).join("oasis"))
+    Ok(oasis_dir)
 }
 
 fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     let config_path = Path::new(&oasis_dir).join("config");
     config::Config::load(config_path.to_str().unwrap())
+}
+
+fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
+    Ok(())
 }
