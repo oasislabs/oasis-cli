@@ -56,7 +56,7 @@ fn main() {
         )
     );
 
-    let config_dir = must_ensure_oasis_dirs();
+    let config_dir = ensure_oasis_dirs().unwrap();
     let config = match parse_config(config_dir) {
         Err(err) => panic!("failed to load configuration `{}`", err.to_string()),
         Ok(config) => config,
@@ -88,13 +88,6 @@ fn main() {
     }
 }
 
-fn must_ensure_oasis_dirs() -> PathBuf {
-    match ensure_oasis_dirs() {
-        Ok(path) => path,
-        Err(err) => panic!(err.to_string()),
-    }
-}
-
 fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
     let oasis_dir = match dirs::config_dir() {
         Some(mut config_dir) => {
@@ -114,7 +107,7 @@ fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
 
 fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
     let config_path = Path::new(&oasis_dir).join("config");
-    config::Config::load(config_path.to_str().unwrap())
+    config::Config::load(&config_path)
 }
 
 fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
