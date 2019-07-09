@@ -8,43 +8,30 @@ use std::{
 
 use crate::error::Error;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
     pub private_key: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct Profiles {
-    pub profiles: HashMap<String, Profile>,
-    pub default: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Logging {
+    #[serde(skip)]
     pub path_stdout: path::PathBuf,
+    #[serde(skip)]
     pub path_stderr: path::PathBuf,
     pub dir: path::PathBuf,
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(skip)]
     pub timestamp: i64,
+    #[serde(skip)]
     pub id: u64,
     pub logging: Logging,
-    pub profiles: Profiles,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LoggingParse {
-    pub dir: path::PathBuf,
-    pub enabled: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ConfigParse {
-    pub logging: LoggingParse,
-    pub profile: HashMap<String, Profile>,
+    #[serde(alias = "profile")]
+    pub profiles: HashMap<String, Profile>,
 }
 
 impl Config {
@@ -52,31 +39,16 @@ impl Config {
         let mut reader = io::BufReader::new(file);
         let mut content = String::new();
         reader.read_to_string(&mut content)?;
-        let config: ConfigParse = toml::from_str(&content)?;
+        let mut config: Config = toml::from_str(&content)?;
 
-        let id = rand::random::<u64>();
-        let timestamp = chrono::Utc::now().timestamp();
+        config.id = rand::random::<u64>();
+        config.timestamp = chrono::Utc::now().timestamp();
 
-        Ok(Config {
-            id,
-            timestamp,
-            logging: Logging {
-                path_stdout: path::Path::new(&config.logging.dir)
-                    .join(format!("{}.{}.stdout", timestamp, id)),
-                path_stderr: path::Path::new(&config.logging.dir)
-                    .join(format!("{}.{}.stderr", timestamp, id)),
-                dir: config.logging.dir,
-                enabled: config.logging.enabled,
-            },
-            profiles: Profiles {
-                default: if config.profile.contains_key("default") {
-                    Some("default".to_string())
-                } else {
-                    None
-                },
-                profiles: config.profile,
-            },
-        })
+        config.logging.path_stdout = path::Path::new(&config.logging.dir)
+            .join(format!("{}.{}.stdout", config.timestamp, config.id));
+        config.logging.path_stderr = path::Path::new(&config.logging.dir)
+            .join(format!("{}.{}.stderr", config.timestamp, config.id));
+        Ok(config)
     }
 
     fn generate(path: &str) -> Result<(), failure::Error> {
@@ -85,9 +57,7 @@ impl Config {
             Some(config_dir) => config_dir.to_str().unwrap().to_string(),
         };
         let log_dir = path::Path::new(&config_dir).join("oasis").join("log");
-
         let file = fs::OpenOptions::new().write(true).create(true).open(path)?;
-
         let mut profiles = HashMap::new();
         profiles.insert(
             "default".to_string(),
@@ -97,13 +67,18 @@ impl Config {
         );
 
         let mut writer = io::BufWriter::new(file);
-        let content = toml::to_string(&ConfigParse {
-            logging: LoggingParse {
+        let content = toml::to_string(&Config {
+            id: 0,
+            timestamp: 0,
+            logging: Logging {
+                path_stdout: path::PathBuf::new(),
+                path_stderr: path::PathBuf::new(),
                 enabled: false,
                 dir: log_dir,
             },
-            profile: profiles,
+            profiles,
         })?;
+
         writer.write_all(&content.into_bytes())?;
         Ok(())
     }
