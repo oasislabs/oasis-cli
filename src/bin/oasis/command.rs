@@ -164,7 +164,6 @@ fn collect_output<O: Read + Send + 'static>(
         Some(out) => out,
         _ => return None,
     };
-
     Some(thread::spawn(move || {
         let mut buffer = [0; 4096];
         if let Err(err) = on_output_callback.on_start() {
