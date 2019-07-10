@@ -14,6 +14,13 @@ pub struct Profile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Telemetry {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub min_files: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Logging {
     #[serde(skip)]
     pub path_stdout: PathBuf,
@@ -32,6 +39,7 @@ pub struct Config {
     pub logging: Logging,
     #[serde(alias = "profile")]
     pub profiles: HashMap<String, Profile>,
+    pub telemetry: Telemetry,
 }
 
 impl Default for Config {
@@ -58,6 +66,11 @@ impl Default for Config {
                 dir: log_dir,
             },
             profiles,
+            telemetry: Telemetry {
+                enabled: false,
+                endpoint: String::new(),
+                min_files: 0,
+            },
         }
     }
 }
@@ -101,9 +114,12 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self, failure::Error> {
-        let config_path = Path::new(path);
+        debug!(
+            "loading configuration file from path {}",
+            path.to_str().unwrap()
+        );
 
-        if !config_path.exists() {
+        if !path.exists() {
             info!(
                 "no configuration file found. Generating configuration file {}",
                 path.to_str().unwrap(),
@@ -111,7 +127,7 @@ impl Config {
             Self::generate(path)?;
         }
 
-        let res = OpenOptions::new().read(true).open(config_path);
+        let res = OpenOptions::new().read(true).open(path);
 
         match res {
             Ok(file) => Config::read_config(file),

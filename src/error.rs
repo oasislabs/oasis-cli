@@ -16,6 +16,8 @@ pub enum Error {
         _0
     )]
     ExecNotFound(String),
+    #[fail(display = "could not read file `{}` with error `{}`.", _0, _1)]
+    ReadFile(String, String),
     #[fail(display = "Failed to join thread")]
     JoinThread,
     #[fail(display = "Unknown project type: `{}`", _0)]
