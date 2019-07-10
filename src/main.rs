@@ -57,20 +57,14 @@ fn main() {
         )
     );
 
+    let config_dir = ensure_oasis_dirs().unwrap();
+    let config = parse_config(config_dir).unwrap();
+
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
-
-    let config = match generate_config() {
-        Ok(config) => config,
-        Err(err) => {
-            error!("{}", err);
-            std::process::exit(1);
-        }
-    };
-
     let result = match app_m.subcommand() {
         ("init", Some(m)) => init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
         ("build", Some(m)) => BuildOptions::new(config, &m).and_then(build),
@@ -108,22 +102,9 @@ fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
     Ok(oasis_dir)
 }
 
-fn generate_config() -> Result<config::Config, failure::Error> {
-    let oasis_dir = ensure_oasis_dirs()?;
-    let id = rand::random::<u64>();
-    let timestamp = chrono::Utc::now().timestamp();
-    let logdir = oasis_dir.join("log");
-
-    Ok(config::Config {
-        id,
-        timestamp,
-        logging: config::Logging {
-            path_stdout: Path::new(&logdir).join(format!("{}.{}.stdout", timestamp, id)),
-            path_stderr: Path::new(&logdir).join(format!("{}.{}.stderr", timestamp, id)),
-            dir: logdir,
-            enabled: true,
-        },
-    })
+fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
+    let config_path = Path::new(&oasis_dir).join("config");
+    config::Config::load(&config_path)
 }
 
 fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
