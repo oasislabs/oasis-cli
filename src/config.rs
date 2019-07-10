@@ -28,6 +28,7 @@ pub struct Logging {
     pub path_stderr: PathBuf,
     pub dir: PathBuf,
     pub enabled: bool,
+    pub id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,6 +61,7 @@ impl Default for Config {
             id: rand::random(),
             timestamp: chrono::Utc::now().timestamp(),
             logging: Logging {
+                id: Config::generate_uuid(),
                 path_stdout: PathBuf::new(),
                 path_stderr: PathBuf::new(),
                 enabled: false,
@@ -76,6 +78,14 @@ impl Default for Config {
 }
 
 impl Config {
+    fn generate_uuid() -> String {
+        let mut buf = [0u8; uuid::adapter::Hyphenated::LENGTH];
+        uuid::Uuid::new_v4()
+            .to_hyphenated()
+            .encode_lower(&mut buf[..])
+            .to_owned()
+    }
+
     fn generate_output_file_path(base: &PathBuf, ext: &str, timestamp: i64, id: u64) -> PathBuf {
         base.join(format!("{}.{}.{}", timestamp, id, ext))
     }

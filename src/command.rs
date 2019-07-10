@@ -86,6 +86,7 @@ pub fn run_cmd_with_env_and_output(
                     let output_handler = log_tee(
                         &$log_path,
                         stringify!(stream),
+                        &config.logging.id,
                         stdio_handlers.$stream,
                         log_conf.enabled,
                     )?;
@@ -138,6 +139,7 @@ fn handle_output(
 fn log_tee(
     log_path: &std::path::Path,
     logger_name: impl AsRef<str>,
+    logger_id: impl AsRef<str>,
     handler: Box<dyn Write + Send + 'static>,
     logging_enabled: bool,
 ) -> Result<Box<dyn Write + Send>, failure::Error> {
@@ -153,6 +155,7 @@ fn log_tee(
 
     Ok(box crate::logger::Logger::new(
         logger_name.as_ref().to_string(),
+        logger_id.as_ref().to_string(),
         handler,
         log_file,
     )?)
