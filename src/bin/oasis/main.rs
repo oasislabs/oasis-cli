@@ -57,25 +57,13 @@ fn main() {
     );
 
     let config_dir = ensure_oasis_dirs().unwrap();
-    let config = match parse_config(config_dir) {
-        Err(err) => panic!("failed to load configuration `{}`", err.to_string()),
-        Ok(config) => config,
-    };
+    let config = parse_config(config_dir).unwrap();
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
-
-    let config = match generate_config() {
-        Ok(config) => config,
-        Err(err) => {
-            error!("{}", err);
-            std::process::exit(1);
-        }
-    };
-
     let result = match app_m.subcommand() {
         ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
         ("build", Some(m)) => cmd_build::BuildOptions::new(config, &m).and_then(cmd_build::build),
