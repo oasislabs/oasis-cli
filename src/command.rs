@@ -139,7 +139,7 @@ fn handle_output(
 fn log_tee(
     log_path: &std::path::Path,
     logger_name: impl AsRef<str>,
-    logger_id: impl AsRef<str>,
+    logger_id: &str,
     handler: Box<dyn Write + Send + 'static>,
     logging_enabled: bool,
 ) -> Result<Box<dyn Write + Send>, failure::Error> {
@@ -155,7 +155,7 @@ fn log_tee(
 
     Ok(box crate::logger::Logger::new(
         logger_name.as_ref().to_string(),
-        logger_id.as_ref().to_string(),
+        logger_id.to_string(),
         handler,
         log_file,
     )?)

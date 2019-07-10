@@ -20,6 +20,16 @@ pub struct Telemetry {
     pub min_files: usize,
 }
 
+impl Default for Telemetry {
+    fn default() -> Self {
+        Telemetry {
+            enabled: false,
+            endpoint: String::new(),
+            min_files: 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Logging {
     #[serde(skip)]
@@ -68,11 +78,7 @@ impl Default for Config {
                 dir: log_dir,
             },
             profiles,
-            telemetry: Telemetry {
-                enabled: false,
-                endpoint: String::new(),
-                min_files: 0,
-            },
+            telemetry: Telemetry::default(),
         }
     }
 }
@@ -137,7 +143,7 @@ impl Config {
             Self::generate(path)?;
         }
 
-        let res = OpenOptions::new().read(true).open(path);
+        let res = File::open(path);
 
         match res {
             Ok(file) => Config::read_config(file),

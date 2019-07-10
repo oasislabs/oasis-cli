@@ -1,8 +1,8 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path};
 
 use crate::{config::Telemetry, error::Error};
 
-pub fn collect(config: &Telemetry, dir: &PathBuf) -> Result<(), failure::Error> {
+pub fn push(config: &Telemetry, dir: &Path) -> Result<(), failure::Error> {
     if !config.enabled {
         return Ok(());
     }
@@ -15,7 +15,11 @@ pub fn collect(config: &Telemetry, dir: &PathBuf) -> Result<(), failure::Error> 
 
     debug!("collecting data from {} log files", entry_count);
     let mut count = 0;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .gzip(true)
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+
     for entry in fs::read_dir(dir)? {
         let file = entry?;
         if !file.metadata()?.is_file() {
@@ -31,7 +35,7 @@ pub fn collect(config: &Telemetry, dir: &PathBuf) -> Result<(), failure::Error> 
             continue;
         }
 
-        let content = fs::read_to_string(file.path()).map_err(|err| {
+        let content = fs::read(file.path()).map_err(|err| {
             Error::ReadFile(file.path().to_str().unwrap().to_string(), err.to_string())
         })?;
 

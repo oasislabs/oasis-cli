@@ -61,7 +61,7 @@ fn main() {
     let config_dir = ensure_oasis_dirs().unwrap();
     let config = parse_config(config_dir).unwrap();
 
-    if let Err(err) = telemetry::collect(&config.telemetry, &config.logging.dir) {
+    if let Err(err) = telemetry::push(&config.telemetry, &config.logging.dir) {
         debug!("failed to collect telemetry `{}`", err.to_string());
     }
 
