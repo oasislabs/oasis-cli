@@ -5,6 +5,10 @@ description = "Oasis developer tools"
 authors = ["Oasis Labs <feedback@oasislabs.com>"]
 edition = "2018"
 
+[[bin]]
+name = "oasis"
+path = "src/main.rs"
+
 [dependencies]
 cargo_toml = "0.6"
 chrono = "0.4"
@@ -16,5 +20,4 @@ failure = "0.1"
 log = "0.4"
 mantle-rpc = { version = "0.1", features = ["import"] }
 rand = "0.7"
-regex = "1.1"
 walrus = "0.8"
