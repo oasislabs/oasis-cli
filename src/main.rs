@@ -1,22 +1,23 @@
+#![feature(box_syntax)]
+
 #[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 
-mod cmd_build;
-mod cmd_clean;
-mod cmd_ifextract;
-mod cmd_init;
 mod command;
 mod config;
 mod error;
+mod logger;
+mod subcommands;
 mod utils;
 
 use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+use subcommands::{build, clean, ifextract, init, BuildOptions};
 
 fn main() {
     let mut log_builder = env_logger::Builder::from_default_env();
@@ -71,10 +72,10 @@ fn main() {
     };
 
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => cmd_init::init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
-        ("build", Some(m)) => cmd_build::BuildOptions::new(config, &m).and_then(cmd_build::build),
-        ("clean", Some(_)) => cmd_clean::clean(&config),
-        ("ifextract", Some(m)) => cmd_ifextract::ifextract(
+        ("init", Some(m)) => init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
+        ("build", Some(m)) => BuildOptions::new(config, &m).and_then(build),
+        ("clean", Some(_)) => clean(&config),
+        ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),
             Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),

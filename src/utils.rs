@@ -10,7 +10,7 @@ pub fn detect_project_type() -> ProjectType {
         manifest
             .complete_from_path(std::path::Path::new("."))
             .unwrap();
-        ProjectType::Rust(Box::new(manifest))
+        ProjectType::Rust(box manifest)
     } else {
         ProjectType::Unknown
     }
