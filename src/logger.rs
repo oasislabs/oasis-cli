@@ -10,14 +10,16 @@ unsafe impl Send for Logger {}
 impl Logger {
     pub fn new(
         name: String,
+        id: String,
         output_stream: Box<dyn Write>,
         mut log_file: Box<dyn Write>,
     ) -> std::io::Result<Self> {
         write!(
             log_file,
-            r#"{{"date": "{}", "name": "{}", "data": ""#,
+            r#"{{"date": "{}", "name": "{}", "id": "{}", "data": ""#,
             chrono::Utc::now(),
             name,
+            id
         )?;
         Ok(Self {
             output_stream,

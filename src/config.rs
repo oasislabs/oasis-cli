@@ -14,6 +14,23 @@ pub struct Profile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Telemetry {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub min_files: usize,
+}
+
+impl Default for Telemetry {
+    fn default() -> Self {
+        Telemetry {
+            enabled: false,
+            endpoint: String::new(),
+            min_files: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Logging {
     #[serde(skip)]
     pub path_stdout: PathBuf,
@@ -21,6 +38,7 @@ pub struct Logging {
     pub path_stderr: PathBuf,
     pub dir: PathBuf,
     pub enabled: bool,
+    pub id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -32,6 +50,7 @@ pub struct Config {
     pub logging: Logging,
     #[serde(alias = "profile")]
     pub profiles: HashMap<String, Profile>,
+    pub telemetry: Telemetry,
 }
 
 impl Default for Config {
@@ -52,17 +71,27 @@ impl Default for Config {
             id: rand::random(),
             timestamp: chrono::Utc::now().timestamp(),
             logging: Logging {
+                id: Config::generate_uuid(),
                 path_stdout: PathBuf::new(),
                 path_stderr: PathBuf::new(),
                 enabled: false,
                 dir: log_dir,
             },
             profiles,
+            telemetry: Telemetry::default(),
         }
     }
 }
 
 impl Config {
+    fn generate_uuid() -> String {
+        let mut buf = [0u8; uuid::adapter::Hyphenated::LENGTH];
+        uuid::Uuid::new_v4()
+            .to_hyphenated()
+            .encode_lower(&mut buf[..])
+            .to_owned()
+    }
+
     fn generate_output_file_path(base: &PathBuf, ext: &str, timestamp: i64, id: u64) -> PathBuf {
         base.join(format!("{}.{}.{}", timestamp, id, ext))
     }
@@ -101,9 +130,12 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self, failure::Error> {
-        let config_path = Path::new(path);
+        debug!(
+            "loading configuration file from path {}",
+            path.to_str().unwrap()
+        );
 
-        if !config_path.exists() {
+        if !path.exists() {
             info!(
                 "no configuration file found. Generating configuration file {}",
                 path.to_str().unwrap(),
@@ -111,7 +143,7 @@ impl Config {
             Self::generate(path)?;
         }
 
-        let res = OpenOptions::new().read(true).open(config_path);
+        let res = File::open(path);
 
         match res {
             Ok(file) => Config::read_config(file),
