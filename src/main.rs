@@ -7,8 +7,10 @@ extern crate log;
 
 mod command;
 mod config;
+mod dialogue;
 mod error;
 mod logger;
+mod path;
 mod subcommands;
 mod telemetry;
 mod utils;
