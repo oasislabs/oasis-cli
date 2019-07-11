@@ -82,7 +82,7 @@ pub struct Config {
     pub id: u64,
     #[serde(default)]
     pub logging: Logging,
-    #[serde(alias = "profile")]
+    #[serde(alias = "profile", default)]
     pub profiles: HashMap<String, Profile>,
     #[serde(default)]
     pub telemetry: Telemetry,

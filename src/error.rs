@@ -22,6 +22,8 @@ pub enum Error {
     JoinThread,
     #[fail(display = "Unknown project type: `{}`", _0)]
     UnknownProjectType(String),
+    #[fail(display = "Destination path `{}` already exists.", _0)]
+    FileAlreadyExists(String),
     #[fail(display = "error `{}`", _0)]
     Unknown(String),
 }
