@@ -8,7 +8,7 @@ use std::{
 
 use crate::error::Error;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Endpoint {
     Local,
     Remote,
@@ -32,6 +32,31 @@ impl ToString for Endpoint {
             Endpoint::Remote => "remote".to_string(),
             Endpoint::Undefined => "undefined".to_string(),
         }
+    }
+}
+
+trait PathProvider {
+    fn config_dir(&self) -> Option<PathBuf>;
+}
+
+struct CustomPathProvider {
+    config_dir: Option<PathBuf>,
+}
+
+impl PathProvider for CustomPathProvider {
+    fn config_dir(&self) -> Option<PathBuf> {
+        match &self.config_dir {
+            Some(config_dir) => Some(config_dir.clone()),
+            None => None,
+        }
+    }
+}
+
+struct SysPathProvider {}
+
+impl PathProvider for SysPathProvider {
+    fn config_dir(&self) -> Option<PathBuf> {
+        dirs::config_dir()
     }
 }
 
@@ -78,17 +103,12 @@ pub struct Logging {
 
 impl Default for Logging {
     fn default() -> Logging {
-        let dir = match dirs::config_dir() {
-            None => PathBuf::new(),
-            Some(config_dir) => config_dir.join("oasis").join("log"),
-        };
-
         Logging {
             id: generate_uuid(),
             path_stdout: PathBuf::new(),
             path_stderr: PathBuf::new(),
             enabled: false,
-            dir,
+            dir: PathBuf::new(),
         }
     }
 }
@@ -149,16 +169,29 @@ fn generate_uuid() -> String {
 struct DefaultOptions {
     telemetry_enabled: bool,
     local_private_key: String,
+    path_provider: Option<Box<dyn PathProvider>>,
 }
 
 impl Config {
     fn default_with_options(options: DefaultOptions) -> Self {
+        let path_provider = match options.path_provider {
+            Some(path_provider) => path_provider,
+            None => box SysPathProvider {},
+        };
+
         let mut config = Config::default();
 
         if options.telemetry_enabled {
             config.telemetry.enabled = true;
             config.logging.enabled = true;
         }
+
+        let log_dir = match path_provider.config_dir() {
+            None => PathBuf::new(),
+            Some(config_dir) => config_dir.join("oasis").join("log"),
+        };
+
+        config.logging.dir = log_dir;
 
         // replace the existing local profile with the new
         // configuration
@@ -218,6 +251,7 @@ impl Config {
         Ok(DefaultOptions {
             telemetry_enabled,
             local_private_key,
+            path_provider: None,
         })
     }
 
@@ -251,7 +285,8 @@ impl Config {
         }
     }
 
-    fn generate_with_defaults(path: &Path, opts: DefaultOptions) -> Result<(), failure::Error> {
+    fn write_to_file_with_dialogue(path: &Path) -> Result<(), failure::Error> {
+        let opts = Config::dialogue()?;
         let config = Self::default_with_options(opts);
         let file = OpenOptions::new().write(true).create(true).open(path)?;
         let mut writer = io::BufWriter::new(file);
@@ -259,11 +294,6 @@ impl Config {
         writer.write_all(&content.into_bytes())?;
         info!("configuration file {} has been generated. Edit the configuration file in case modifications are required.", path.to_str().unwrap());
         Ok(())
-    }
-
-    fn generate_with_dialogue(path: &Path) -> Result<(), failure::Error> {
-        let opts = Config::dialogue()?;
-        Self::generate_with_defaults(path, opts)
     }
 
     pub fn load(path: &Path) -> Result<Self, failure::Error> {
@@ -277,7 +307,7 @@ impl Config {
                 "no configuration file found. Generating configuration file {}",
                 path.to_str().unwrap(),
             );
-            Self::generate_with_dialogue(path)?;
+            Self::write_to_file_with_dialogue(path)?;
         }
 
         let res = File::open(path);
@@ -288,5 +318,82 @@ impl Config {
                 Err(Error::ConfigParse(path.to_str().unwrap().to_string(), err.to_string()).into())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::config::{Config, CustomPathProvider, DefaultOptions, Endpoint};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_defaults_with_options_telemetry_enabled() -> Result<(), failure::Error> {
+        let config = Config::default_with_options(DefaultOptions {
+            telemetry_enabled: true,
+            local_private_key: String::from("1234"),
+            path_provider: Some(box CustomPathProvider {
+                config_dir: Some(PathBuf::from("/config")),
+            }),
+        });
+
+        assert_eq!(PathBuf::from(""), config.logging.path_stdout);
+        assert_eq!(PathBuf::from(""), config.logging.path_stderr);
+        assert_eq!(PathBuf::from("/config/oasis/log"), config.logging.dir);
+        assert_eq!(config.logging.id.len() == 36, true);
+        assert_eq!(true, config.logging.enabled);
+        assert_eq!(
+            "https://gollum.devnet2.oasiscloud.io/",
+            config.telemetry.endpoint
+        );
+        assert_eq!(true, config.telemetry.enabled);
+        assert_eq!(50, config.telemetry.min_files);
+
+        assert_eq!(2, config.profiles.len());
+        let local = config.profiles.get("local").unwrap();
+        assert_eq!("1234", local.private_key);
+        assert_eq!("http://localhost:8546/", local.endpoint);
+        assert_eq!(Endpoint::Local, local.endpoint_type);
+
+        let default = config.profiles.get("default").unwrap();
+        assert_eq!("", default.private_key);
+        assert_eq!("https://gateway.devnet.oasiscloud.io", default.endpoint);
+        assert_eq!(Endpoint::Remote, default.endpoint_type);
+        Ok(())
+    }
+
+    #[test]
+    fn test_defaults_with_options_telemetry_disabled() -> Result<(), failure::Error> {
+        let config = Config::default_with_options(DefaultOptions {
+            telemetry_enabled: false,
+            local_private_key: String::from("1234"),
+            path_provider: Some(box CustomPathProvider {
+                config_dir: Some(PathBuf::from("/config")),
+            }),
+        });
+
+        assert_eq!(PathBuf::from(""), config.logging.path_stdout);
+        assert_eq!(PathBuf::from(""), config.logging.path_stderr);
+        assert_eq!(PathBuf::from("/config/oasis/log"), config.logging.dir);
+        assert_eq!(config.logging.id.len() == 36, true);
+        assert_eq!(false, config.logging.enabled);
+        assert_eq!(
+            "https://gollum.devnet2.oasiscloud.io/",
+            config.telemetry.endpoint
+        );
+        assert_eq!(false, config.telemetry.enabled);
+        assert_eq!(50, config.telemetry.min_files);
+
+        assert_eq!(2, config.profiles.len());
+        let local = config.profiles.get("local").unwrap();
+        assert_eq!("1234", local.private_key);
+        assert_eq!("http://localhost:8546/", local.endpoint);
+        assert_eq!(Endpoint::Local, local.endpoint_type);
+
+        let default = config.profiles.get("default").unwrap();
+        assert_eq!("", default.private_key);
+        assert_eq!("https://gateway.devnet.oasiscloud.io", default.endpoint);
+        assert_eq!(Endpoint::Remote, default.endpoint_type);
+        Ok(())
     }
 }
