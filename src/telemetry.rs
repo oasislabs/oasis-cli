@@ -5,7 +5,7 @@ use std::{fs, io::Write as _, path::Path};
 use crate::{config::Telemetry, error::Error};
 
 pub fn push(config: &Telemetry, dir: &Path) -> Result<(), failure::Error> {
-    if !config.enabled {
+    if !config.enabled || config.endpoint.len() == 0 {
         return Ok(());
     }
 
