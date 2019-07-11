@@ -1,4 +1,6 @@
-use std::{fs, path::Path};
+use flate2::{write::GzEncoder, Compression};
+use reqwest::header::{HeaderMap, HeaderValue};
+use std::{fs, io::Write as _, path::Path};
 
 use crate::{config::Telemetry, error::Error};
 
@@ -15,9 +17,12 @@ pub fn push(config: &Telemetry, dir: &Path) -> Result<(), failure::Error> {
 
     debug!("collecting data from {} log files", entry_count);
     let mut count = 0;
+    let mut headers = HeaderMap::new();
+    headers.insert("Content-Encoding", HeaderValue::from_static("gzip"));
+
     let client = reqwest::Client::builder()
-        .gzip(true)
         .timeout(std::time::Duration::from_secs(5))
+        .default_headers(headers)
         .build()?;
 
     for entry in fs::read_dir(dir)? {
@@ -39,7 +44,12 @@ pub fn push(config: &Telemetry, dir: &Path) -> Result<(), failure::Error> {
             Error::ReadFile(file.path().to_str().unwrap().to_string(), err.to_string())
         })?;
 
-        let res = client.post(&config.endpoint).body(content).send()?;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&content[..])?;
+        let res = client
+            .post(&config.endpoint)
+            .body(encoder.finish()?)
+            .send()?;
 
         trace!(
             "uploaded file `{}` with status `{}`",
