@@ -15,23 +15,9 @@ pub enum Endpoint {
     Undefined,
 }
 
-impl From<String> for Endpoint {
-    fn from(s: String) -> Endpoint {
-        match s.as_ref() {
-            "local" => Endpoint::Local,
-            "remote" => Endpoint::Remote,
-            _ => Endpoint::Undefined,
-        }
-    }
-}
-
-impl ToString for Endpoint {
-    fn to_string(&self) -> String {
-        match self {
-            Endpoint::Local => "local".to_string(),
-            Endpoint::Remote => "remote".to_string(),
-            Endpoint::Undefined => "undefined".to_string(),
-        }
+impl Default for Endpoint {
+    fn default() -> Self {
+        Endpoint::Undefined
     }
 }
 
@@ -41,7 +27,7 @@ pub struct Profile {
     pub private_key: String,
     #[serde(default)]
     pub endpoint: String,
-    #[serde(default = Endpoint::Undefined)]
+    #[serde(default)]
     pub endpoint_type: Endpoint,
 }
 
@@ -59,7 +45,7 @@ impl Default for Telemetry {
     fn default() -> Self {
         Telemetry {
             enabled: false,
-            endpoint: String::from("https://gollum.devnet2.oasiscloud.io/"),
+            endpoint: "https://gollum.devnet2.oasiscloud.io/".to_string(),
             min_files: 50,
         }
     }
@@ -78,7 +64,7 @@ pub struct Logging {
 
 impl Default for Logging {
     fn default() -> Logging {
-        Logging {
+        Self {
             id: generate_uuid(),
             path_stdout: PathBuf::new(),
             path_stderr: PathBuf::new(),
@@ -109,7 +95,7 @@ impl Default for Config {
             "local".to_string(),
             Profile {
                 private_key: String::new(),
-                endpoint: String::from("http://localhost:8546/"),
+                endpoint: "http://localhost:8546/".to_string(),
                 endpoint_type: Endpoint::Local,
             },
         );
@@ -118,7 +104,7 @@ impl Default for Config {
             "default".to_string(),
             Profile {
                 private_key: String::new(),
-                endpoint: String::from("https://gateway.devnet.oasiscloud.io"),
+                endpoint: "https://gateway.devnet.oasiscloud.io".to_string(),
                 endpoint_type: Endpoint::Remote,
             },
         );
@@ -141,18 +127,17 @@ struct DefaultOpts {
 
 fn generate_uuid() -> String {
     let mut buf = [0u8; uuid::adapter::Hyphenated::LENGTH];
-    uuid::Uuid::new_v4()
+    let _ = uuid::Uuid::new_v4()
         .to_hyphenated()
-        .encode_lower(&mut buf[..])
-        .to_owned()
+        .encode_lower(&mut buf[..]);
+    String::from_utf8(buf.to_vec()).unwrap()
 }
 
 impl Config {
     fn default_with_options(options: DefaultOpts) -> Self {
-        let path_provider = match options.path_provider {
-            Some(path_provider) => path_provider,
-            None => box path::SysProvider {},
-        };
+        let path_provider = options
+            .path_provider
+            .unwrap_or_else(|| box path::SysProvider::new());
 
         let mut config = Config::default();
 
@@ -161,20 +146,17 @@ impl Config {
             config.logging.enabled = true;
         }
 
-        let log_dir = match path_provider.config_dir() {
-            None => PathBuf::new(),
-            Some(config_dir) => config_dir.join("oasis").join("log"),
-        };
+        let config_dir = path_provider.config_dir().unwrap_or_default();
 
-        config.logging.dir = log_dir;
+        config.logging.dir = config_dir.join("oasis").join("log");
 
         // replace the existing local profile with the new
         // configuration
-        let local_profile = config.profiles.get("local").unwrap();
+        let local_profile = config.profiles.remove("local").unwrap();
         let new_local_profile = Profile {
             private_key: options.local_private_key,
-            endpoint: local_profile.endpoint.clone(),
             endpoint_type: local_profile.endpoint_type,
+            endpoint: local_profile.endpoint,
         };
 
         config
@@ -265,11 +247,12 @@ impl Config {
 #[cfg(test)]
 mod tests {
 
+    use std::path::PathBuf;
+
     use crate::{
         config::{Config, DefaultOpts, Endpoint},
         path::Provider as PathProvider,
     };
-    use std::path::PathBuf;
 
     pub struct CustomProvider {
         pub config_dir: Option<PathBuf>,
@@ -288,7 +271,7 @@ mod tests {
     fn test_defaults_with_options_telemetry_enabled() -> Result<(), failure::Error> {
         let config = Config::default_with_options(DefaultOpts {
             telemetry_enabled: true,
-            local_private_key: String::from("1234"),
+            local_private_key: "1234".to_string(),
             path_provider: Some(box CustomProvider {
                 config_dir: Some(PathBuf::from("/config")),
             }),
@@ -323,14 +306,14 @@ mod tests {
     fn test_defaults_with_options_telemetry_disabled() -> Result<(), failure::Error> {
         let config = Config::default_with_options(DefaultOpts {
             telemetry_enabled: false,
-            local_private_key: String::from("1234"),
+            local_private_key: "1234".to_string(),
             path_provider: Some(box CustomProvider {
                 config_dir: Some(PathBuf::from("/config")),
             }),
         });
 
-        assert_eq!(PathBuf::from(""), config.logging.path_stdout);
-        assert_eq!(PathBuf::from(""), config.logging.path_stderr);
+        assert_eq!(PathBuf::new(), config.logging.path_stdout);
+        assert_eq!(PathBuf::new(), config.logging.path_stderr);
         assert_eq!(PathBuf::from("/config/oasis/log"), config.logging.dir);
         assert_eq!(config.logging.id.len() == 36, true);
         assert_eq!(false, config.logging.enabled);
