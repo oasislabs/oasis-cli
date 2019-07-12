@@ -21,6 +21,7 @@ use std::{
 };
 
 use subcommands::{build, clean, ifextract, init, BuildOptions};
+use crate::path::Provider as _;
 
 fn main() {
     let mut log_builder = env_logger::Builder::from_default_env();
@@ -93,7 +94,7 @@ fn main() {
 }
 
 fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
-    let oasis_dir = match dirs::config_dir() {
+    let oasis_dir = match path::SysProvider.config_dir() {
         Some(mut config_dir) => {
             config_dir.push("oasis");
             config_dir
