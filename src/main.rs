@@ -20,8 +20,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
 use crate::path::Provider as _;
+use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
 
 fn main() {
     let mut log_builder = env_logger::Builder::from_default_env();

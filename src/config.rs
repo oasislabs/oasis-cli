@@ -193,13 +193,15 @@ impl Config {
         Ok(config)
     }
 
-    fn present_dialogue_for_opts() -> Result<DefaultOpts, failure::Error> {
-        dialogue::introduction();
+    fn present_dialogue_for_opts(
+        dialoguer: &mut dialogue::Dialoguer,
+    ) -> Result<DefaultOpts, failure::Error> {
+        dialoguer.introduction();
 
         let telemetry_enabled =
-            dialogue::confirm("Would like to help us by providing telemetry data?", false)?;
-        let local_private_key =
-            dialogue::ask_string("What private key would you like to use for local deployments?")?;
+            dialoguer.confirm("Would like to help us by providing telemetry data?", false)?;
+        let local_private_key = dialoguer
+            .ask_string("What private key would you like to use for local deployments?")?;
 
         Ok(DefaultOpts {
             telemetry_enabled,
@@ -209,7 +211,8 @@ impl Config {
     }
 
     fn write_to_file_with_dialogue(path: &Path) -> Result<(), failure::Error> {
-        let opts = Self::present_dialogue_for_opts()?;
+        let mut dialoguer = dialogue::Dialoguer::new();
+        let opts = Self::present_dialogue_for_opts(&mut dialoguer)?;
         let config = Self::default_with_options(opts);
         let file = OpenOptions::new().write(true).create(true).open(path)?;
         let mut writer = io::BufWriter::new(file);
@@ -247,14 +250,15 @@ impl Config {
 #[cfg(test)]
 mod tests {
 
-    use std::path::PathBuf;
+    use std::{io, path::PathBuf, vec::Vec};
 
     use crate::{
         config::{Config, DefaultOpts, Endpoint},
+        dialogue::{Dialoguer, LineRead},
         path::Provider as PathProvider,
     };
 
-    pub struct CustomProvider {
+    struct CustomProvider {
         pub config_dir: Option<PathBuf>,
     }
 
@@ -264,6 +268,20 @@ mod tests {
                 Some(config_dir) => Some(config_dir.clone()),
                 None => None,
             }
+        }
+    }
+
+    struct StringLineRead {
+        lines: Vec<String>,
+    }
+
+    impl LineRead for StringLineRead {
+        fn read_line(&mut self, buf: &mut String) -> io::Result<usize> {
+            buf.clear();
+            let line = self.lines.remove(0);
+            buf.insert_str(0, &line);
+            buf.insert(buf.len(), '\n');
+            Ok(buf.len())
         }
     }
 
@@ -334,6 +352,20 @@ mod tests {
         assert_eq!("", default.private_key);
         assert_eq!("https://gateway.devnet.oasiscloud.io", default.endpoint);
         assert_eq!(Endpoint::Remote, default.endpoint_type);
+        Ok(())
+    }
+
+    #[test]
+    fn test_present_dialogue_for_opts_telemetry_enabled() -> Result<(), failure::Error> {
+        let reader = StringLineRead {
+            lines: vec!["y".to_string(), "1234".to_string()],
+        };
+        let mut dialoguer = Dialoguer::new_with_reader(box reader, false);
+        let opts = Config::present_dialogue_for_opts(&mut dialoguer)?;
+
+        assert_eq!(true, opts.telemetry_enabled);
+        assert_eq!("1234", opts.local_private_key);
+        assert_eq!(true, opts.path_provider.is_none());
         Ok(())
     }
 }

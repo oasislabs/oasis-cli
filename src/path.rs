@@ -14,7 +14,7 @@ impl SysProvider {
 
 impl Provider for SysProvider {
     fn config_dir(&self) -> Option<PathBuf> {
-        match std::env::var("OASIS_CONFIG_DIR"){
+        match std::env::var("OASIS_CONFIG_DIR") {
             Ok(s) => Some(PathBuf::from(&s)),
             Err(_) => dirs::config_dir(),
         }
