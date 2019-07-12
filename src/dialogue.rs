@@ -39,7 +39,6 @@ impl Dialoguer {
         let _ = self.reader.read_line(&mut s)?;
         let s = s.trim_end().to_string();
 
-        println!("RECEIVED: {}", s);
         let r = match &*s.to_lowercase() {
             "y" | "yes" => true,
             "n" | "no" => false,
