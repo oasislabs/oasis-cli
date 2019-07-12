@@ -6,4 +6,4 @@ mod init;
 pub use build::{build, BuildOptions};
 pub use clean::clean;
 pub use ifextract::ifextract;
-pub use init::init;
+pub use init::{init, InitOptions};
