@@ -20,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use subcommands::{build, clean, ifextract, init, BuildOptions};
+use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
 use crate::path::Provider as _;
 
 fn main() {
@@ -36,7 +36,7 @@ fn main() {
             (about: "Create a new Oasis package")
             (@arg NAME: +required "Package name")
             (@group type =>
-                (@arg rust: --rust "Create a new Rust project")
+                (@arg rust: --rust "Create a new Rust service")
             )
         )
         (@subcommand build =>
@@ -74,7 +74,7 @@ fn main() {
 
     let app_m = app.get_matches();
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => init(&config, m.value_of("NAME").unwrap_or("."), "rust"),
+        ("init", Some(m)) => InitOptions::new(config, &m).and_then(init),
         ("build", Some(m)) => BuildOptions::new(config, &m).and_then(build),
         ("clean", Some(_)) => clean(&config),
         ("ifextract", Some(m)) => ifextract(
@@ -111,7 +111,7 @@ fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
 }
 
 fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
-    let config_path = Path::new(&oasis_dir).join("config");
+    let config_path = Path::new(&oasis_dir).join("config.toml");
     config::Config::load(&config_path)
 }
 
