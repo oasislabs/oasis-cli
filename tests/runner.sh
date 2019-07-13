@@ -4,7 +4,7 @@ set -e
 
 export OASIS_TEST_BASE=/tmp/oasis-cli.$RANDOM
 export OASIS_CLI_BINARY=$(pwd)/target/debug/oasis
-export XDG_CONFIG_DIR=$OASIS_TEST_BASE
+export XDG_CONFIG_HOME=$OASIS_TEST_BASE
 
 mkdir -p $OASIS_TEST_BASE
 
