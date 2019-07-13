@@ -1,4 +1,4 @@
-#![feature(box_syntax)]
+#![feature(box_syntax, concat_idents)]
 
 #[macro_use]
 extern crate clap;
@@ -9,23 +9,18 @@ mod command;
 mod config;
 mod dialogue;
 mod error;
-mod logger;
-mod path;
 mod subcommands;
 mod telemetry;
+#[macro_use]
 mod utils;
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
+use config::Config;
 use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
 
 fn main() {
-    let mut log_builder = env_logger::Builder::from_default_env();
-    log_builder.format(log_format);
-    log_builder.init();
+    env_logger::Builder::from_default_env()
+        .format(log_format)
+        .init();
 
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
@@ -60,12 +55,12 @@ fn main() {
         )
     );
 
-    let config_dir = ensure_oasis_dirs().unwrap();
-    let config = parse_config(config_dir).unwrap();
+    let config = Config::load().unwrap_or_else(|err| {
+        warn!("could not load config file: {}", err);
+        Config::default()
+    });
 
-    if let Err(err) = telemetry::push(&config.telemetry, &config.logging.dir) {
-        debug!("failed to collect telemetry `{}`", err.to_string());
-    }
+    telemetry::init(&config);
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
@@ -78,7 +73,7 @@ fn main() {
         ("clean", Some(_)) => clean(&config),
         ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),
-            Path::new(m.value_of("out_dir").unwrap_or(".")),
+            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
@@ -90,28 +85,6 @@ fn main() {
         error!("{}", err);
         std::process::exit(1);
     }
-}
-
-fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
-    let oasis_dir = match dirs::config_dir() {
-        Some(mut config_dir) => {
-            config_dir.push("oasis");
-            config_dir
-        }
-        None => return Err(failure::format_err!("could not resolve user config dir")),
-    };
-
-    let log_dir = oasis_dir.join("log");
-    if !log_dir.is_dir() {
-        fs::create_dir_all(log_dir)?;
-    }
-
-    Ok(oasis_dir)
-}
-
-fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
-    let config_path = Path::new(&oasis_dir).join("config.toml");
-    config::Config::load(&config_path)
 }
 
 fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {

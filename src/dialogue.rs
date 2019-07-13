@@ -1,36 +1,59 @@
-use std::io::{self, Write as _};
+use std::io::Write as _;
 
-pub fn confirm(question: &str, default: bool) -> Result<bool, failure::Error> {
-    print!("{} ", question);
-    let mut s = String::new();
-    io::stdout().flush()?;
-    let _ = io::stdin().read_line(&mut s)?;
-    let s = s.trim_end().to_string();
+use colored::*;
 
-    let r = match &*s.to_lowercase() {
-        "y" | "yes" => true,
-        "n" | "no" => false,
-        "" => default,
-        _ => false,
-    };
+pub fn introduction() {
+    println!("Welcome to the Oasis Development Environment!");
+    println!();
+    println!("You don't seem to have a config file yet. Let's set that up now.");
+    println!();
+}
+
+pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, failure::Error> {
+    println!("{}", "1. Telemetry\n".bold().white());
+    println!(
+        "Would you like to help build a better developer experience by enabling telemetry?\n\
+         This tool will collect anonymous usage stats that won't be shared with third parties.\n\
+         You can find your data in `{}` and can change your opt-in\n\
+         status by running `{} telemetry enable/disable`.\n",
+        telemetry_path.display(),
+        std::env::args().nth(0).unwrap()
+    );
+    confirm("Enable telemetry?", false)
+}
+
+pub fn prompt_local_private_key() -> Result<String, failure::Error> {
+    ask_string("What private key would you like to use for local deployments?")
+}
+
+fn confirm(question: &str, default: bool) -> Result<bool, failure::Error> {
+    let yn = if default { " (Y/n)" } else { " (y/N)" };
+
+    let mut prompt = String::with_capacity(question.len() + yn.len());
+    prompt += question;
+    prompt += yn;
+
+    let response = prompt_yn(&prompt, default)?;
 
     println!();
 
-    Ok(r)
+    Ok(response)
 }
 
 pub fn ask_string(question: &str) -> Result<String, failure::Error> {
     let mut s = String::new();
-
-    println!("{}", question);
-    let _ = io::stdin().read_line(&mut s)?;
+    print!("{} ", question);
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut s)?;
     Ok(s.trim_end().to_string())
 }
 
-pub fn introduction() {
-    println!("Welcome to Oasis Development Environment!");
-    println!("In next few steps, we will configure your settings.");
-    println!();
-    println!("We hope to collect telemetry data from the logging generated from your usage. This telemetry data");
-    println!("will give us usage insights and be able to guide our engineering team to improve your experience.");
+fn prompt_yn(prompt: &str, default: bool) -> Result<bool, failure::Error> {
+    let response = ask_string(prompt)?;
+    Ok(match response.to_lowercase().as_str() {
+        "y" | "yes" | "true" => true,
+        "n" | "no" | "false" => false,
+        "" => default,
+        _ => prompt_yn(prompt, default)?,
+    })
 }

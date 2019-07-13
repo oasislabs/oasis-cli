@@ -15,3 +15,28 @@ pub fn detect_project_type() -> ProjectType {
         ProjectType::Unknown
     }
 }
+
+#[macro_export]
+macro_rules! oasis_dir {
+    ($dir:ident) => {{
+        use dirs::*;
+        use failure::format_err;
+
+        concat_idents!($dir, _dir)()
+            .ok_or_else(|| format_err!("could not determine {} dir", stringify!($dir)))
+            .and_then(|mut dir| {
+                dir.push("oasis");
+                if dir.is_file() {
+                    return Err(format_err!(
+                        "{} dir `{}` is a file",
+                        stringify!(dir),
+                        dir.display()
+                    ));
+                }
+                if !dir.is_dir() {
+                    fs::create_dir_all(&dir)?;
+                }
+                Ok(dir)
+            })
+    }};
+}
