@@ -24,6 +24,6 @@ pub enum Error {
     UnknownProjectType(String),
     #[fail(display = "Destination path `{}` already exists.", _0)]
     FileAlreadyExists(String),
-    #[fail(display = "error `{}`", _0)]
-    Unknown(String),
+    #[fail(display = "Could not determine cargo target dir")]
+    UnknownTargetDir,
 }

@@ -7,7 +7,7 @@ use std::{
 use colored::*;
 
 use crate::{
-    command::{run_cmd_with_env, Verbosity},
+    command::{run_cmd_with_env, run_cmd_with_env_and_output, Sink, Verbosity},
     config::Config,
     utils::{detect_project_type, ProjectType},
 };
@@ -109,16 +109,6 @@ fn build_rust(
     };
     let num_products = product_names.len();
 
-    let target_dir = PathBuf::from(
-        std::env::var_os("CARGO_TARGET_DIR")
-            .unwrap_or_else(|| OsString::from("target".to_string())),
-    );
-
-    let services_dir = target_dir.join("service");
-    if !services_dir.is_dir() {
-        std::fs::create_dir_all(&services_dir)?;
-    }
-
     let mut envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
     if let Some(stack_size) = opts.stack_size {
         let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
@@ -143,7 +133,14 @@ fn build_rust(
             if num_products > 1 { "s" } else { "" }
         );
     }
-    run_cmd_with_env(&opts.config, "cargo", cargo_args, opts.verbosity, envs)?;
+    let target_dir = get_target_dir(&cargo_args)?;
+
+    let services_dir = target_dir.join("service");
+    if !services_dir.is_dir() {
+        std::fs::create_dir_all(&services_dir)?;
+    }
+
+    run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs)?;
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
@@ -160,6 +157,38 @@ fn build_rust(
     }
 
     Ok(())
+}
+
+pub fn get_target_dir(cargo_args: &[&str]) -> Result<PathBuf, failure::Error> {
+    let build_plan_args = cargo_args
+        .iter()
+        .chain(&["-Zunstable-options", "--build-plan"])
+        .collect::<Vec<_>>();
+    let mut build_plan_str = Vec::new();
+    run_cmd_with_env_and_output(
+        "cargo",
+        build_plan_args,
+        std::env::vars_os(),
+        Sink::Piped(&mut build_plan_str),
+        Sink::Ignored,
+    )?;
+    serde_json::from_slice::<serde_json::Value>(&build_plan_str)
+        .ok()
+        .as_ref()
+        .and_then(|plan| plan.get("invocations"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|invs| invs.last())
+        .and_then(|inv| inv.get("args"))
+        .cloned()
+        .and_then(|args| serde_json::from_value::<Vec<String>>(args).ok())
+        .and_then(
+            |args| match args.iter().position(|a| a.as_str() == "--out-dir") {
+                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../<relase_mode>/deps
+                None => None,
+            },
+        )
+        .and_then(|p| p.parent().and_then(Path::parent).map(Path::to_path_buf))
+        .ok_or_else(|| crate::error::Error::UnknownTargetDir.into())
 }
 
 pub fn prep_wasm(

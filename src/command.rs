@@ -1,10 +1,11 @@
 use std::{
     ffi::OsStr,
     io::{self, Read, Write},
+    process::Stdio,
     thread,
 };
 
-use crate::{config::Config, error::Error};
+use crate::error::Error;
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -26,83 +27,87 @@ impl From<u64> for Verbosity {
     }
 }
 
-pub struct StdioHandlers {
-    pub stdout: Box<dyn Write + Send>,
-    pub stderr: Box<dyn Write + Send>,
-}
-
 pub fn run_cmd(
-    config: &Config,
     name: &'static str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     verbosity: Verbosity,
 ) -> Result<(), failure::Error> {
-    run_cmd_with_env(config, name, args, verbosity, std::env::vars_os())
+    run_cmd_with_env(name, args, verbosity, std::env::vars_os())
 }
 
 pub fn run_cmd_with_env(
-    config: &Config,
     name: &'static str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     verbosity: Verbosity,
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
 ) -> Result<(), failure::Error> {
-    let (stdout, stderr): (Box<dyn Write + Send>, Box<dyn Write + Send>) =
-        if verbosity < Verbosity::Normal {
-            (box io::sink(), box io::sink())
-        } else if verbosity == Verbosity::Verbose {
-            (box io::stdout(), box io::sink())
-        } else {
-            (box io::stdout(), box io::stderr())
-        };
+    let (stdout, stderr) = if verbosity < Verbosity::Normal {
+        (Sink::Ignored, Sink::Ignored)
+    } else if verbosity == Verbosity::Verbose {
+        (Sink::Inherited, Sink::Ignored)
+    } else {
+        (Sink::Inherited, Sink::Inherited)
+    };
 
-    run_cmd_with_env_and_output(config, name, args, envs, StdioHandlers { stdout, stderr })
+    run_cmd_with_env_and_output(name, args, envs, stdout, stderr)
+}
+
+pub enum Sink<'a> {
+    Ignored,
+    Inherited,
+    Piped(&'a mut (dyn Write + Send)),
+}
+
+impl<'a> Sink<'a> {
+    pub fn as_stdio(&self) -> Stdio {
+        match self {
+            Sink::Ignored => Stdio::null(),
+            Sink::Inherited => Stdio::inherit(),
+            Sink::Piped(_) => Stdio::piped(),
+        }
+    }
 }
 
 pub fn run_cmd_with_env_and_output(
-    config: &Config,
     name: &str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
-    stdio_handlers: StdioHandlers,
+    stdout: Sink,
+    stderr: Sink,
 ) -> Result<(), failure::Error> {
-    let mut child = std::process::Command::new(name)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    let mut cmd = std::process::Command::new(name)
         .args(args)
         .envs(envs)
+        .stdout(stdout.as_stdio())
+        .stderr(stderr.as_stdio())
         .spawn()
         .map_err(|e| match e.kind() {
-            io::ErrorKind::NotFound => Error::ExecNotFound(name.to_string()),
-            _ => Error::Unknown(e.to_string()),
+            io::ErrorKind::NotFound => Error::ExecNotFound(name.to_string()).into(),
+            _ => failure::Error::from(e),
         })?;
 
-    let log_conf = &config.logging;
-
-    macro_rules! wrap_with_logger {
-        ($stream:ident, $log_path:expr) => {
-            match child.$stream.take() {
-                Some(stream) => {
-                    let output_handler = log_tee(
-                        &$log_path,
-                        stringify!(stream),
-                        &config.logging.id,
-                        stdio_handlers.$stream,
-                        log_conf.enabled,
-                    )?;
-                    Some(handle_output(stream, output_handler))
-                }
-                None => None,
+    macro_rules! handle {
+        ($stream:ident) => {
+            match $stream {
+                Sink::Piped(sink) => cmd.$stream.take().map(|source| {
+                    handle_output(source, unsafe {
+                        // The main thread waits on subprocess, so writer is effectively
+                        // static for the life of the subprocess.
+                        std::mem::transmute::<
+                            &mut (dyn Write + Send),
+                            &mut (dyn Write + Send + 'static),
+                        >(sink)
+                    })
+                }),
+                _ => None,
             }
         };
     }
 
-    let stdout_handle = wrap_with_logger!(stdout, log_conf.path_stdout);
-    let stderr_handle = wrap_with_logger!(stderr, log_conf.path_stderr);
+    let stdout_handle = handle!(stdout);
+    let stderr_handle = handle!(stderr);
 
-    let status = child
-        .wait()
-        .map_err(|err| Error::Unknown(err.to_string()))?;
+    let status = cmd.wait()?;
 
     if let Some(handle) = stdout_handle {
         handle.join().map_err(|_| Error::JoinThread)?;
@@ -120,7 +125,7 @@ pub fn run_cmd_with_env_and_output(
 
 fn handle_output(
     mut source: impl Read + Send + 'static,
-    mut sink: Box<dyn Write + Send + 'static>,
+    mut sink: impl Write + Send + 'static,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut buf = [0; 4096];
@@ -134,29 +139,4 @@ fn handle_output(
             }
         }
     })
-}
-
-fn log_tee(
-    log_path: &std::path::Path,
-    logger_name: impl AsRef<str>,
-    logger_id: &str,
-    handler: Box<dyn Write + Send + 'static>,
-    logging_enabled: bool,
-) -> Result<Box<dyn Write + Send>, failure::Error> {
-    let log_file: Box<dyn Write> = if logging_enabled {
-        box std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .map_err(|e| Error::OpenLogFile(e.to_string()))?
-    } else {
-        box io::sink()
-    };
-
-    Ok(box crate::logger::Logger::new(
-        logger_name.as_ref().to_string(),
-        logger_id.to_string(),
-        handler,
-        log_file,
-    )?)
 }
