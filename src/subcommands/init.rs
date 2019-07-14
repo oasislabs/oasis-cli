@@ -2,7 +2,7 @@ use std::{io::BufRead as _, path::PathBuf};
 
 use colored::*;
 
-use crate::{command::Verbosity, config::Config, error::Error};
+use crate::{command::Verbosity, config::Config, emit, error::Error};
 
 const QUICKSTART_URL: &str = "https://github.com/oasislabs/quickstart";
 const QUICKSTART_TGZ_BYTES: &[u8] = include_bytes!(env!("QUICKSTART_INCLUDE_PATH"));
@@ -14,7 +14,7 @@ pub struct InitOptions {
 }
 
 impl InitOptions {
-    pub fn new(_config: Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+    pub fn new(_config: &Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         let project_type = match m.value_of("type").map(|t| t.trim()) {
             Some(t) if t.is_empty() => t,
             _ => "rust",
@@ -56,9 +56,15 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     match git2::Repository::clone(QUICKSTART_URL, dest) {
         Ok(_) => {
+            emit!(cmd.init, { "project_type": "rust", "source": "repo" });
             std::fs::remove_dir_all(dest.join(".git"))?;
         }
         Err(err) => {
+            emit!(cmd.init, {
+                "project_type": "rust",
+                "source": "archive",
+                "repo_err": err.to_string()
+            });
             debug!("Could not clone quickstart repo: {}", err);
             let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(QUICKSTART_TGZ_BYTES));
             for entry in ar.entries()? {

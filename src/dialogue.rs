@@ -22,10 +22,6 @@ pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, failur
     confirm("Enable telemetry?", false)
 }
 
-pub fn prompt_local_private_key() -> Result<String, failure::Error> {
-    ask_string("What private key would you like to use for local deployments?")
-}
-
 fn confirm(question: &str, default: bool) -> Result<bool, failure::Error> {
     let yn = if default { " (Y/n)" } else { " (y/N)" };
 

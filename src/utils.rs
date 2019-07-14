@@ -34,7 +34,7 @@ macro_rules! oasis_dir {
                     ));
                 }
                 if !dir.is_dir() {
-                    fs::create_dir_all(&dir)?;
+                    std::fs::create_dir_all(&dir)?;
                 }
                 Ok(dir)
             })

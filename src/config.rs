@@ -43,18 +43,27 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Result<Self, failure::Error> {
-        let config_path = {
-            let mut config_dir = crate::oasis_dir!(config)?;
-            config_dir.push("config.toml");
-            config_dir
-        };
-
+        let config_path = Self::default_path()?;
         if !config_path.exists() {
             Self::generate(&config_path)
         } else {
             debug!("loading configuration from `{}`", config_path.display());
             Self::read_from_file(&config_path)
         }
+    }
+
+    pub fn save(&self) -> Result<(), failure::Error> {
+        self.write_to_file(Self::default_path()?)
+    }
+
+    pub fn enable_telemetry(&mut self, enabled: bool) {
+        self.telemetry.enabled = enabled;
+    }
+
+    pub fn default_path() -> Result<PathBuf, failure::Error> {
+        let mut config_path = crate::oasis_dir!(config)?;
+        config_path.push("config.toml");
+        Ok(config_path)
     }
 }
 
@@ -85,7 +94,7 @@ impl Config {
             .map_err(|err| Error::ConfigParse(path.display().to_string(), err.to_string()))?)
     }
 
-    fn write_to_file(&self, path: &Path) -> Result<(), failure::Error> {
+    fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), failure::Error> {
         Ok(std::fs::write(path, toml::to_string_pretty(self)?)?)
     }
 }

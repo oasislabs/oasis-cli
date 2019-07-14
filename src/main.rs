@@ -10,6 +10,7 @@ mod config;
 mod dialogue;
 mod error;
 mod subcommands;
+#[macro_use]
 mod telemetry;
 #[macro_use]
 mod utils;
@@ -53,35 +54,76 @@ fn main() {
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
+        (@subcommand telemetry =>
+            (about: "Manage telemetry settings")
+            (@setting Hidden)
+            (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
+            (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
+            (@subcommand status => (about: "Check telemetry status"))
+            (@subcommand upload => (@setting Hidden))
+        )
     );
 
-    let config = Config::load().unwrap_or_else(|err| {
+    let mut config = Config::load().unwrap_or_else(|err| {
         warn!("could not load config file: {}", err);
         Config::default()
     });
 
-    telemetry::init(&config);
+    if let Err(err) = telemetry::init(&config) {
+        warn!("could not enable telemetry: {}", err);
+    };
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
+
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => InitOptions::new(config, &m).and_then(init),
-        ("build", Some(m)) => BuildOptions::new(config, &m).and_then(build),
-        ("clean", Some(_)) => clean(&config),
+        ("init", Some(m)) => InitOptions::new(&config, &m).and_then(init),
+        ("build", Some(m)) => BuildOptions::new(&config, &m).and_then(build),
+        ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
+        ("telemetry", Some(m)) => match m.subcommand() {
+            ("enable", _) => {
+                config.enable_telemetry(true);
+                println!("Telemetry is enabled.");
+                Ok(())
+            }
+            ("disable", _) => {
+                config.enable_telemetry(false);
+                println!("Telemetry is disabled.");
+                Ok(())
+            }
+            ("status", _) => telemetry::metrics_path().map(|p| {
+                println!(
+                    "Telemetry is {}.",
+                    if config.telemetry.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                );
+                println!("Usage data is being written to `{}`", p.display());
+            }),
+            ("upload", _) => telemetry::upload(),
+            _ => Ok(()),
+        },
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;
         }
-    };
+    }
+    .and_then(|_| config.save());
 
     if let Err(err) = result {
+        emit!(error, {
+            "args": std::env::args().collect::<Vec<_>>().join(" "),
+            "error": err.to_string()
+        });
         error!("{}", err);
         std::process::exit(1);
     }

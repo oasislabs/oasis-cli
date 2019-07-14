@@ -12,8 +12,8 @@ use crate::{
     utils::{detect_project_type, ProjectType},
 };
 
-pub struct BuildOptions {
-    pub config: Config,
+pub struct BuildOptions<'a> {
+    pub config: &'a Config,
     pub stack_size: Option<u32>,
     pub services: Vec<String>,
     pub release: bool,
@@ -21,8 +21,8 @@ pub struct BuildOptions {
     pub verbosity: Verbosity,
 }
 
-impl BuildOptions {
-    pub fn new(config: Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+impl<'a> BuildOptions<'a> {
+    pub fn new(config: &'a Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
             config,
             stack_size: match value_t!(m, "stack_size", u32) {

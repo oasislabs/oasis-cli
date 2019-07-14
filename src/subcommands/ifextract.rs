@@ -1,6 +1,7 @@
 use mantle_rpc::import::{ImportedService, Importer};
 
 pub fn ifextract(service_url: &str, out_dir: &std::path::Path) -> Result<(), failure::Error> {
+    crate::emit!(cmd.ifextract);
     for ImportedService { interface, .. } in
         Importer::for_url(service_url, std::env::current_dir().unwrap())?.import_all()?
     {
