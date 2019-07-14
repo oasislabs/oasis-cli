@@ -129,6 +129,7 @@ pub fn upload() -> Result<(), failure::Error> {
         let body = gz.finish()?;
 
         let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(7))
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(
