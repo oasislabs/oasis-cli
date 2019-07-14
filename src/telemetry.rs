@@ -78,25 +78,31 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failur
     let log_file = log_file.lock().unwrap();
     let mut log_file = log_file.borrow_mut();
     log_file.lock_shared()?;
-    log_file.write_all(
-        &serde_json::to_string(&Event {
-            event,
-            data: if data.as_array().unwrap().is_empty() {
-                None
-            } else {
-                Some(data)
-            },
-            session_id: *session_id,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        })?
-        .as_bytes(),
-    )?;
-    log_file.flush()?;
+
+    let emit_to_log = || -> Result<(), failure::Error> {
+        log_file.write_all(
+            &serde_json::to_string(&Event {
+                event,
+                data: if data.as_array().unwrap().is_empty() {
+                    None
+                } else {
+                    Some(data)
+                },
+                session_id: *session_id,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            })?
+            .as_bytes(),
+        )?;
+        log_file.flush()?;
+        Ok(())
+    };
+
+    let result = emit_to_log();
     log_file.unlock()?;
-    Ok(())
+    result
 }
 
 pub fn upload() -> Result<(), failure::Error> {
@@ -110,15 +116,14 @@ pub fn upload() -> Result<(), failure::Error> {
     let log_file = log_file.lock().unwrap();
     let mut log_file = log_file.borrow_mut();
 
-    // BEGIN CRITICAL SECTION
     log_file.lock_exclusive()?;
 
-    log_file.seek(std::io::SeekFrom::Start(0))?;
-    let mut rd = BufReader::new(&*log_file);
-    let mut log = Vec::new();
-    rd.read_to_end(&mut log)?;
+    let mut try_upload = || -> Result<(), failure::Error> {
+        log_file.seek(std::io::SeekFrom::Start(0))?;
+        let mut rd = BufReader::new(&*log_file);
+        let mut log = Vec::new();
+        rd.read_to_end(&mut log)?;
 
-    let try_upload = || -> Result<(), failure::Error> {
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
         gz.write_all(&log)?;
         let body = gz.finish()?;
@@ -144,13 +149,8 @@ pub fn upload() -> Result<(), failure::Error> {
         Ok(())
     };
 
-    let result = try_upload();
-    if let Ok(()) = result {
-        log_file.set_len(0)?;
-    }
+    let result = try_upload().and_then(|_| Ok(log_file.set_len(0)?));
     log_file.unlock()?;
-    // END CRITICAL SECTION
-
     result
 }
 
