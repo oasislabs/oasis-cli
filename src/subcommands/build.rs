@@ -9,6 +9,7 @@ use colored::*;
 use crate::{
     command::{run_cmd_with_env, run_cmd_with_env_and_output, Sink, Verbosity},
     config::Config,
+    emit,
     utils::{detect_project_type, ProjectType},
 };
 
@@ -140,10 +141,22 @@ fn build_rust(
         std::fs::create_dir_all(&services_dir)?;
     }
 
-    run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs)?;
+    emit!(cmd.build.start, {
+        "project_type": "rust",
+        "num_services": num_products,
+        "release": opts.release,
+        "hardmode": opts.hardmode,
+        "stack_size": opts.stack_size,
+        "rustflags": std::env::var("RUSTFLAGS").ok(),
+    });
+
+    if let Err(_) = run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs) {
+        emit!(cmd.build.error);
+    };
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
+    emit!(cmd.build.prep_wasm);
     for product_name in product_names {
         let wasm_name = product_name + ".wasm";
         let wasm_file = wasm_dir.join(&wasm_name);
@@ -156,6 +169,7 @@ fn build_rust(
         prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
     }
 
+    emit!(cmd.build.done);
     Ok(())
 }
 
