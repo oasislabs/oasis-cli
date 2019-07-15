@@ -33,6 +33,7 @@ macro_rules! oasis_dir {
                         dir.display()
                     ));
                 }
+
                 if !dir.is_dir() {
                     std::fs::create_dir_all(&dir)?;
                 }
