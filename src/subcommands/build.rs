@@ -48,14 +48,8 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
         ProjectType::Rust(manifest) => build_rust(opts, manifest),
         ProjectType::Unknown => match opts.services.as_slice() {
             [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
-                let svc = Path::new(svc);
-                let parent = svc.parent();
-                let out_file = if parent.is_none() || parent.unwrap().to_str().unwrap().is_empty() {
-                    svc.with_extension("wasm")
-                } else {
-                    svc.to_path_buf()
-                };
-                prep_wasm(&svc, &out_file, opts.release)?;
+                let out_file = Path::new(svc).with_extension("wasm");
+                prep_wasm(&Path::new(svc), &out_file, opts.release)?;
                 Ok(())
             }
             _ => Err(failure::format_err!("could not detect Oasis project type.")),
@@ -213,11 +207,11 @@ pub fn get_target_dir(cargo_args: &[&str]) -> Result<PathBuf, failure::Error> {
         .and_then(|args| serde_json::from_value::<Vec<String>>(args).ok())
         .and_then(
             |args| match args.iter().position(|a| a.as_str() == "--out-dir") {
-                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../<relase_mode>/deps
+                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../wasm32-wasi/<relase_mode>/deps
                 None => None,
             },
         )
-        .and_then(|p| p.parent().and_then(Path::parent).map(Path::to_path_buf))
+        .and_then(|p| p.ancestors().nth(3).map(Path::to_path_buf))
         .ok_or_else(|| crate::error::Error::UnknownTargetDir.into())
 }
 
