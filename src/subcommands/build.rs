@@ -207,11 +207,11 @@ pub fn get_target_dir(cargo_args: &[&str]) -> Result<PathBuf, failure::Error> {
         .and_then(|args| serde_json::from_value::<Vec<String>>(args).ok())
         .and_then(
             |args| match args.iter().position(|a| a.as_str() == "--out-dir") {
-                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../wasm32-wasi/<relase_mode>/deps
+                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../target/wasm32-wasi/<relase_mode>/deps
                 None => None,
             },
         )
-        .and_then(|p| p.ancestors().nth(3).map(Path::to_path_buf))
+        .and_then(|p| p.ancestors().nth(3).map(Path::to_path_buf)) // pop wasm32-wasi/<release>/deps
         .ok_or_else(|| crate::error::Error::UnknownTargetDir.into())
 }
 
