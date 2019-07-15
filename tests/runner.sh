@@ -24,7 +24,6 @@ fi
 
 mkdir -p $OASIS_TEST_BASE
 
-rustup default nightly
 if [ ! -f $OASIS_CLI_BINARY ]; then
     cargo build
 fi
