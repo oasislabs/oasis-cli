@@ -35,9 +35,7 @@ macro_rules! oasis_dir {
                 }
 
                 if !dir.is_dir() {
-                    let res = std::fs::create_dir_all(&dir);
-                    println!("ATTEMPT TO CREATE DIR: {:?} with res: {:?}", dir, res);
-                    res?;
+                    std::fs::create_dir_all(&dir)?;
                 }
                 Ok(dir)
             })

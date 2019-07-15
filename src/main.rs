@@ -57,7 +57,7 @@ fn main() {
         (@subcommand telemetry =>
             (about: "Manage telemetry settings")
             (@setting Hidden)
-         (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
+            (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
             (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
             (@subcommand status => (about: "Check telemetry status"))
             (@subcommand upload => (@setting Hidden))
@@ -70,7 +70,6 @@ fn main() {
     });
 
     if let Err(err) = telemetry::init(&config) {
-        println!("TELEMETRY ENABLED: {:?}", err);
         warn!("could not enable telemetry: {}", err);
     };
 
