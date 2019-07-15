@@ -253,12 +253,10 @@ pub fn prep_wasm(
 }
 
 fn externalize_mem(module: &mut walrus::Module) {
-    let mem_export_id = module
-        .exports
-        .iter()
-        .find(|e| e.name == "memory")
-        .unwrap()
-        .id();
+    let mem_export_id = match module.exports.iter().find(|e| e.name == "memory") {
+        Some(mem) => mem.id(),
+        None => return,
+    };
     module.exports.delete(mem_export_id);
 
     let mut mem = module.memories.iter_mut().nth(0).unwrap();
