@@ -1,4 +1,4 @@
-#![feature(box_syntax)]
+#![feature(box_syntax, concat_idents)]
 
 #[macro_use]
 extern crate clap;
@@ -9,23 +9,19 @@ mod command;
 mod config;
 mod dialogue;
 mod error;
-mod logger;
-mod path;
 mod subcommands;
+#[macro_use]
 mod telemetry;
+#[macro_use]
 mod utils;
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
+use config::Config;
 use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
 
 fn main() {
-    let mut log_builder = env_logger::Builder::from_default_env();
-    log_builder.format(log_format);
-    log_builder.init();
+    env_logger::Builder::from_default_env()
+        .format(log_format)
+        .init();
 
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
@@ -58,60 +54,79 @@ fn main() {
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
+        (@subcommand telemetry =>
+            (about: "Manage telemetry settings")
+            (@setting Hidden)
+            (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
+            (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
+            (@subcommand status => (about: "Check telemetry status"))
+            (@subcommand upload => (@setting Hidden))
+        )
     );
 
-    let config_dir = ensure_oasis_dirs().unwrap();
-    let config = parse_config(config_dir).unwrap();
+    let mut config = Config::load().unwrap_or_else(|err| {
+        warn!("could not load config file: {}", err);
+        Config::default()
+    });
 
-    if let Err(err) = telemetry::push(&config.telemetry, &config.logging.dir) {
-        debug!("failed to collect telemetry `{}`", err.to_string());
-    }
+    if let Err(err) = telemetry::init(&config) {
+        warn!("could not enable telemetry: {}", err);
+    };
 
     // Store `help` for later since `get_matches` takes ownership.
     let mut help = std::io::Cursor::new(Vec::new());
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
+
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => InitOptions::new(config, &m).and_then(init),
-        ("build", Some(m)) => BuildOptions::new(config, &m).and_then(build),
-        ("clean", Some(_)) => clean(&config),
+        ("init", Some(m)) => InitOptions::new(&config, &m).and_then(init),
+        ("build", Some(m)) => BuildOptions::new(&config, &m).and_then(build),
+        ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),
-            Path::new(m.value_of("out_dir").unwrap_or(".")),
+            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
+        ("telemetry", Some(m)) => match m.subcommand() {
+            ("enable", _) => {
+                config.enable_telemetry(true);
+                println!("Telemetry is enabled.");
+                Ok(())
+            }
+            ("disable", _) => {
+                config.enable_telemetry(false);
+                println!("Telemetry is disabled.");
+                Ok(())
+            }
+            ("status", _) => telemetry::metrics_path().map(|p| {
+                println!(
+                    "Telemetry is {}.",
+                    if config.telemetry.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                );
+                println!("Usage data is being written to `{}`", p.display());
+            }),
+            ("upload", _) => telemetry::upload(),
+            _ => Ok(()),
+        },
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;
         }
-    };
+    }
+    .and_then(|_| config.save());
 
     if let Err(err) = result {
+        emit!(error, {
+            "args": std::env::args().collect::<Vec<_>>().join(" "),
+            "error": err.to_string()
+        });
         error!("{}", err);
         std::process::exit(1);
     }
-}
-
-fn ensure_oasis_dirs() -> Result<PathBuf, failure::Error> {
-    let oasis_dir = match dirs::config_dir() {
-        Some(mut config_dir) => {
-            config_dir.push("oasis");
-            config_dir
-        }
-        None => return Err(failure::format_err!("could not resolve user config dir")),
-    };
-
-    let log_dir = oasis_dir.join("log");
-    if !log_dir.is_dir() {
-        fs::create_dir_all(log_dir)?;
-    }
-
-    Ok(oasis_dir)
-}
-
-fn parse_config(oasis_dir: PathBuf) -> Result<config::Config, failure::Error> {
-    let config_path = Path::new(&oasis_dir).join("config.toml");
-    config::Config::load(&config_path)
 }
 
 fn log_format(fmt: &mut env_logger::fmt::Formatter, record: &log::Record) -> std::io::Result<()> {
