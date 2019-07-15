@@ -1,73 +1,55 @@
-use std::io::{self, Write as _};
+use std::io::Write as _;
 
-pub trait LineRead {
-    fn read_line(&mut self, buf: &mut String) -> io::Result<usize>;
+use colored::*;
+
+pub fn introduction() {
+    println!("Welcome to the Oasis Development Environment!");
+    println!();
+    println!("You don't seem to have a config file yet. Let's set that up now.");
+    println!();
 }
 
-pub struct StdinRead;
-
-impl LineRead for StdinRead {
-    fn read_line(&mut self, buf: &mut String) -> io::Result<usize> {
-        io::stdin().read_line(buf)
-    }
+pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, failure::Error> {
+    println!("{}", "1. Telemetry\n".bold().white());
+    println!(
+        "Would you like to help build a better developer experience by enabling telemetry?\n\
+         This tool will collect anonymous usage stats that won't be shared with third parties.\n\
+         You can find your data in `{}` and can change your opt-in\n\
+         status by running `{} telemetry enable/disable`.\n",
+        telemetry_path.display(),
+        std::env::args().nth(0).unwrap()
+    );
+    confirm("Enable telemetry?", false)
 }
 
-pub struct Dialoguer {
-    reader: Box<dyn LineRead>,
-    output: bool,
+fn confirm(question: &str, default: bool) -> Result<bool, failure::Error> {
+    let yn = if default { " (Y/n)" } else { " (y/N)" };
+
+    let mut prompt = String::with_capacity(question.len() + yn.len());
+    prompt += question;
+    prompt += yn;
+
+    let response = prompt_yn(&prompt, default)?;
+
+    println!();
+
+    Ok(response)
 }
 
-impl Dialoguer {
-    pub fn new() -> Self {
-        Dialoguer {
-            reader: box StdinRead {},
-            output: true,
-        }
-    }
+pub fn ask_string(question: &str) -> Result<String, failure::Error> {
+    let mut s = String::new();
+    print!("{} ", question);
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut s)?;
+    Ok(s.trim_end().to_string())
+}
 
-    pub fn new_with_reader(reader: Box<dyn LineRead>, output: bool) -> Self {
-        Dialoguer { reader, output }
-    }
-
-    pub fn confirm(&mut self, question: &str, default: bool) -> Result<bool, failure::Error> {
-        if self.output {
-            print!("{} ", question);
-        }
-
-        let mut s = String::new();
-        io::stdout().flush()?;
-        let _ = self.reader.read_line(&mut s)?;
-        let s = s.trim_end().to_string();
-
-        let r = match &*s.to_lowercase() {
-            "y" | "yes" => true,
-            "n" | "no" => false,
-            "" => default,
-            _ => false,
-        };
-
-        println!();
-
-        Ok(r)
-    }
-
-    pub fn ask_string(&mut self, question: &str) -> Result<String, failure::Error> {
-        let mut s = String::new();
-
-        if self.output {
-            println!("{}", question);
-        }
-        let _ = self.reader.read_line(&mut s)?;
-        Ok(s.trim_end().to_string())
-    }
-
-    pub fn introduction(&self) {
-        if self.output {
-            println!("Welcome to Oasis Development Environment!");
-            println!("In next few steps, we will configure your settings.");
-            println!();
-            println!("We hope to collect telemetry data from the logging generated from your usage. This telemetry data");
-            println!("will give us usage insights and be able to guide our engineering team to improve your experience.");
-        }
-    }
+fn prompt_yn(prompt: &str, default: bool) -> Result<bool, failure::Error> {
+    let response = ask_string(prompt)?;
+    Ok(match response.to_lowercase().as_str() {
+        "y" | "yes" | "true" => true,
+        "n" | "no" | "false" => false,
+        "" => default,
+        _ => prompt_yn(prompt, default)?,
+    })
 }

@@ -6,24 +6,21 @@ pub enum Error {
     OpenLogFile(String),
     #[fail(display = "process `{}` exited with code `{}`", _0, _1)]
     ProcessExit(String, i32),
-    #[fail(
-        display = "failed to read configuration file `{}` with error `{}`",
-        _0, _1
-    )]
+    #[fail(display = "failed to parse `{}`: `{}`", _0, _1)]
     ConfigParse(String, String),
     #[fail(
         display = "could not run `{}`, please make sure it is in your PATH.",
         _0
     )]
     ExecNotFound(String),
-    #[fail(display = "could not read file `{}` with error `{}`.", _0, _1)]
+    #[fail(display = "could not read file `{}`: `{}`.", _0, _1)]
     ReadFile(String, String),
-    #[fail(display = "Failed to join thread")]
+    #[fail(display = "failed to join thread")]
     JoinThread,
-    #[fail(display = "Unknown project type: `{}`", _0)]
+    #[fail(display = "unknown project type: `{}`", _0)]
     UnknownProjectType(String),
-    #[fail(display = "Destination path `{}` already exists.", _0)]
+    #[fail(display = "destination path `{}` already exists.", _0)]
     FileAlreadyExists(String),
-    #[fail(display = "error `{}`", _0)]
-    Unknown(String),
+    #[fail(display = "could not determine cargo target dir")]
+    UnknownTargetDir,
 }
