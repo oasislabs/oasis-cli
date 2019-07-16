@@ -55,8 +55,7 @@ fn main() {
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
         (@subcommand deploy =>
-            (about: "Deploy the current contract on a blockchain")
-            (@arg dashboard: --dashboard "If set, the deploy command will open the oasis dashboard for the deployment of the blockchain.")
+            (about: "Deploy a service to the Oasis blockchain")
         )
         (@subcommand telemetry =>
             (about: "Manage telemetry settings")
