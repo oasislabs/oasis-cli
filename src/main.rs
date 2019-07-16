@@ -39,7 +39,7 @@ fn main() {
             (@arg release: --release "Build with optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg stack_size: --stack-size "Set the Wasm stack size")
-            (@arg hardmode: --hardmode "Build a vanilla WASI service (that doesn't use Mantle)")
+            (@arg hardmode: --hardmode "Build a vanilla WASI service")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
         )
         (@subcommand test =>
@@ -50,7 +50,7 @@ fn main() {
             (about: "Remove build products")
         )
         (@subcommand ifextract =>
-            (about: "Extract interface definition(s) from a Mantle service.wasm")
+            (about: "Extract interface definition(s) from a service.wasm")
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )

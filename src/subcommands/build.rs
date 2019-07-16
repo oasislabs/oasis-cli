@@ -177,7 +177,7 @@ fn get_cargo_envs<'a>(
     if !opts.hardmode {
         envs.insert(
             OsString::from("RUSTC_WRAPPER"),
-            OsString::from("mantle-build"),
+            OsString::from("oasis-build"),
         );
     }
     Ok(envs)
@@ -229,7 +229,7 @@ pub fn prep_wasm(
             .customs
             .iter()
             .filter_map(|(id, custom)| {
-                if custom.name().starts_with("mantle") {
+                if custom.name().starts_with("oasis") {
                     None
                 } else {
                     Some(id)

@@ -21,7 +21,7 @@ flate2 = "1.0"
 fs2 = "0.4"
 git2 = "0.9"
 log = "0.4"
-mantle-rpc = { version = "0.1", features = ["import"] }
+oasis-rpc = { version = "0.1", features = ["import"] }
 once_cell = "0.2"
 rand = "0.7"
 reqwest = "0.9"
