@@ -16,9 +16,7 @@ mod telemetry;
 mod utils;
 
 use config::Config;
-use subcommands::{
-    build, clean, deploy, ifextract, init, BuildOptions, DeployOptions, InitOptions,
-};
+use subcommands::{build, clean, deploy, ifextract, init, BuildOptions, InitOptions};
 
 fn main() {
     env_logger::Builder::from_default_env()
@@ -92,7 +90,7 @@ fn main() {
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
-        ("deploy", Some(m)) => DeployOptions::new(&m).and_then(deploy),
+        ("deploy", Some(_)) => deploy(),
         ("telemetry", Some(m)) => match m.subcommand() {
             ("enable", _) => {
                 config.enable_telemetry(true);
