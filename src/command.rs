@@ -55,6 +55,7 @@ pub fn run_cmd_with_env(
 pub enum Sink<'a> {
     Ignored,
     Inherited,
+    #[allow(dead_code)]
     Piped(&'a mut (dyn Write + Send)),
 }
 

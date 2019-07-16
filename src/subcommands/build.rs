@@ -7,7 +7,7 @@ use std::{
 use colored::*;
 
 use crate::{
-    command::{run_cmd_with_env, run_cmd_with_env_and_output, Sink, Verbosity},
+    command::{run_cmd_with_env, Verbosity},
     config::Config,
     emit,
     utils::{detect_project_type, ProjectType},
@@ -74,7 +74,7 @@ fn build_rust(
     };
     let num_products = product_names.len();
 
-    let envs = get_cargo_envs(&opts)?;
+    let cargo_envs = get_cargo_envs(&opts)?;
 
     if opts.verbosity >= Verbosity::Normal {
         eprintln!(
@@ -82,12 +82,6 @@ fn build_rust(
             "Building".cyan(),
             if num_products > 1 { "s" } else { "" }
         );
-    }
-    let target_dir = get_target_dir(&cargo_args)?;
-
-    let services_dir = target_dir.join("service");
-    if !services_dir.is_dir() {
-        std::fs::create_dir_all(&services_dir)?;
     }
 
     emit!(cmd.build.start, {
@@ -99,9 +93,17 @@ fn build_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if run_cmd_with_env("cargo", cargo_args, opts.verbosity, envs).is_err() {
+    if run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs).is_err() {
         emit!(cmd.build.error);
     };
+
+    let target_dir = get_target_dir();
+    // ^ MUST be called after `cargo build` to ensure that a `target` directory exists to be found
+
+    let services_dir = target_dir.join("service");
+    if !services_dir.is_dir() {
+        std::fs::create_dir_all(&services_dir)?;
+    }
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
@@ -183,36 +185,20 @@ fn get_cargo_envs<'a>(
     Ok(envs)
 }
 
-pub fn get_target_dir(cargo_args: &[&str]) -> Result<PathBuf, failure::Error> {
-    let build_plan_args = cargo_args
-        .iter()
-        .chain(&["-Zunstable-options", "--build-plan"])
-        .collect::<Vec<_>>();
-    let mut build_plan_str = Vec::new();
-    run_cmd_with_env_and_output(
-        "cargo",
-        build_plan_args,
-        std::env::vars_os(),
-        Sink::Piped(&mut build_plan_str),
-        Sink::Ignored,
-    )?;
-    serde_json::from_slice::<serde_json::Value>(&build_plan_str)
+pub fn get_target_dir() -> PathBuf {
+    // Ideally this would use `cargo --build-plan`, but that resets incremental compilation,
+    // for some reason. This is the next best thing.
+    std::env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
         .ok()
-        .as_ref()
-        .and_then(|plan| plan.get("invocations"))
-        .and_then(serde_json::Value::as_array)
-        .and_then(|invs| invs.last())
-        .and_then(|inv| inv.get("args"))
-        .cloned()
-        .and_then(|args| serde_json::from_value::<Vec<String>>(args).ok())
-        .and_then(
-            |args| match args.iter().position(|a| a.as_str() == "--out-dir") {
-                Some(pos) => Some(PathBuf::from(&args[pos + 1])), // .../target/wasm32-wasi/<relase_mode>/deps
-                None => None,
-            },
-        )
-        .and_then(|p| p.ancestors().nth(3).map(Path::to_path_buf)) // pop wasm32-wasi/<release>/deps
-        .ok_or_else(|| crate::error::Error::UnknownTargetDir.into())
+        .or_else(|| {
+            std::env::current_dir().ok().and_then(|cwd| {
+                cwd.ancestors()
+                    .find(|d| d.join("target/wasm32-wasi").is_dir())
+                    .map(Path::to_path_buf)
+            })
+        })
+        .unwrap_or_else(|| PathBuf::from("target"))
 }
 
 pub fn prep_wasm(
