@@ -82,7 +82,9 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failur
     log_file.lock_shared()?;
 
     let emit_to_log = || -> Result<(), failure::Error> {
-        log_file.write_all(
+        writeln!(
+            log_file,
+            "{}",
             &serde_json::to_string(&Event {
                 event,
                 data: if data.as_array().unwrap().is_empty() {
@@ -96,7 +98,6 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failur
                     .unwrap()
                     .as_secs(),
             })?
-            .as_bytes(),
         )?;
         log_file.flush()?;
         Ok(())
