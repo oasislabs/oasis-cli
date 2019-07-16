@@ -1,4 +1,4 @@
-use mantle_rpc::import::{ImportedService, Importer};
+use oasis_rpc::import::{ImportedService, Importer};
 
 pub fn ifextract(service_url: &str, out_dir: &std::path::Path) -> Result<(), failure::Error> {
     crate::emit!(cmd.ifextract);
