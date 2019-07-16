@@ -16,7 +16,9 @@ mod telemetry;
 mod utils;
 
 use config::Config;
-use subcommands::{build, clean, ifextract, init, BuildOptions, InitOptions};
+use subcommands::{
+    build, clean, deploy, ifextract, init, BuildOptions, DeployOptions, InitOptions,
+};
 
 fn main() {
     env_logger::Builder::from_default_env()
@@ -54,6 +56,10 @@ fn main() {
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
+        (@subcommand deploy =>
+            (about: "Deploy the current contract on a blockchain")
+            (@arg dashboard: --dashboard "If set, the deploy command will open the oasis dashboard for the deployment of the blockchain.")
+        )
         (@subcommand telemetry =>
             (about: "Manage telemetry settings")
             (@setting Hidden)
@@ -78,7 +84,6 @@ fn main() {
     app.write_long_help(&mut help).unwrap();
 
     let app_m = app.get_matches();
-
     let result = match app_m.subcommand() {
         ("init", Some(m)) => InitOptions::new(&config, &m).and_then(init),
         ("build", Some(m)) => BuildOptions::new(&config, &m).and_then(build),
@@ -87,6 +92,7 @@ fn main() {
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
+        ("deploy", Some(m)) => DeployOptions::new(&m).and_then(deploy),
         ("telemetry", Some(m)) => match m.subcommand() {
             ("enable", _) => {
                 config.enable_telemetry(true);
