@@ -2,30 +2,35 @@ use std::{io::BufRead as _, path::PathBuf};
 
 use colored::*;
 
-use crate::{command::Verbosity, config::Config, emit, error::Error};
+use crate::{command::Verbosity, emit, error::Error};
 
 const QUICKSTART_URL: &str = "https://github.com/oasislabs/quickstart";
 const QUICKSTART_TGZ_BYTES: &[u8] = include_bytes!(env!("QUICKSTART_INCLUDE_PATH"));
 
-pub struct InitOptions {
-    project_type: String,
+pub struct InitOptions<'a> {
+    project_type: &'a str,
     dest: PathBuf,
     verbosity: Verbosity,
 }
 
-impl InitOptions {
-    pub fn new(_config: &Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+impl<'a> InitOptions<'a> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
         let project_type = match m.value_of("type").map(|t| t.trim()) {
             Some(t) if t.is_empty() => t,
             _ => "rust",
-        }
-        .to_string();
+        };
 
         Ok(Self {
             project_type,
             dest: PathBuf::from(m.value_of("NAME").unwrap_or(".")),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
         })
+    }
+}
+
+impl<'a> super::ExecSubcommand for InitOptions<'a> {
+    fn exec(self) -> Result<(), failure::Error> {
+        init(self)
     }
 }
 
@@ -36,7 +41,7 @@ pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
     } else {
         String::new()
     };
-    match opts.project_type.as_ref() {
+    match opts.project_type {
         "rust" => init_rust(opts),
         project_type => Err(Error::UnknownProjectType(project_type.to_string()).into()),
     }?;

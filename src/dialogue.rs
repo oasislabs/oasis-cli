@@ -15,7 +15,7 @@ pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, failur
         "Would you like to help build a better developer experience by enabling telemetry?\n\
          This tool will collect anonymous usage stats that won't be shared with third parties.\n\
          You can find your data in `{}` and can change your opt-in\n\
-         status by running `{} telemetry enable/disable`.\n",
+         status by running `{} config telemetry enable/disable`.\n",
         telemetry_path.display(),
         std::env::args().nth(0).unwrap()
     );

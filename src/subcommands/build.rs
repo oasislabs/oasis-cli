@@ -8,24 +8,21 @@ use colored::*;
 
 use crate::{
     command::{run_cmd_with_env, Verbosity},
-    config::Config,
     emit,
     utils::{detect_project_type, ProjectType},
 };
 
-pub struct BuildOptions<'a> {
-    pub config: &'a Config,
-    pub stack_size: Option<u32>,
-    pub services: Vec<String>,
-    pub release: bool,
-    pub hardmode: bool,
-    pub verbosity: Verbosity,
+pub struct BuildOptions {
+    stack_size: Option<u32>,
+    services: Vec<String>,
+    release: bool,
+    wasi: bool,
+    verbosity: Verbosity,
 }
 
-impl<'a> BuildOptions<'a> {
-    pub fn new(config: &'a Config, m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+impl BuildOptions {
+    pub fn new(m: &clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
-            config,
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
                 Err(clap::Error {
@@ -36,13 +33,18 @@ impl<'a> BuildOptions<'a> {
             },
             release: m.is_present("release"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
-            hardmode: m.is_present("hardmode"),
+            wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
         })
     }
 }
 
-/// Builds a project for the Oasis platform
+impl super::ExecSubcommand for BuildOptions {
+    fn exec(self) -> Result<(), failure::Error> {
+        build(self)
+    }
+}
+
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
     match detect_project_type() {
         ProjectType::Rust(manifest) => build_rust(opts, manifest),
@@ -77,18 +79,14 @@ fn build_rust(
     let cargo_envs = get_cargo_envs(&opts)?;
 
     if opts.verbosity >= Verbosity::Normal {
-        eprintln!(
-            "    {} service{}",
-            "Building".cyan(),
-            if num_products > 1 { "s" } else { "" }
-        );
+        eprintln!("    {} {}", "Building".cyan(), product_names.join(", "));
     }
 
     emit!(cmd.build.start, {
         "project_type": "rust",
         "num_services": num_products,
         "release": opts.release,
-        "hardmode": opts.hardmode,
+        "wasi": opts.wasi,
         "stack_size": opts.stack_size,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
@@ -108,14 +106,18 @@ fn build_rust(
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
     emit!(cmd.build.prep_wasm);
-    for product_name in product_names {
-        let wasm_name = product_name + ".wasm";
+
+    let wasm_names = product_names
+        .into_iter()
+        .map(|n| n + ".wasm")
+        .collect::<Vec<_>>();
+    if opts.verbosity >= Verbosity::Normal {
+        eprintln!("   {} {}", "Preparing".cyan(), wasm_names.join(","));
+    }
+    for wasm_name in wasm_names {
         let wasm_file = wasm_dir.join(&wasm_name);
         if !wasm_file.is_file() {
             continue;
-        }
-        if opts.verbosity >= Verbosity::Normal {
-            eprintln!("    {} {}", "Preparing".cyan(), wasm_name,);
         }
         prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
     }
@@ -128,7 +130,7 @@ fn get_cargo_args<'a>(
     opts: &'a BuildOptions,
     manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
-    let mut cargo_args = vec!["build", "--target=wasm32-wasi", "--color=always"];
+    let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
     } else if opts.verbosity == Verbosity::High {
@@ -163,8 +165,8 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn get_cargo_envs<'a>(
-    opts: &'a BuildOptions,
+fn get_cargo_envs(
+    opts: &BuildOptions,
 ) -> Result<std::collections::HashMap<OsString, OsString>, failure::Error> {
     let mut envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
     if let Some(stack_size) = opts.stack_size {
@@ -176,7 +178,7 @@ fn get_cargo_envs<'a>(
             }
         }
     }
-    if !opts.hardmode {
+    if !opts.wasi {
         envs.insert(
             OsString::from("RUSTC_WRAPPER"),
             OsString::from("oasis-build"),
