@@ -79,11 +79,7 @@ fn build_rust(
     let cargo_envs = get_cargo_envs(&opts)?;
 
     if opts.verbosity >= Verbosity::Normal {
-        eprintln!(
-            "    {} service{}",
-            "Building".cyan(),
-            if num_products > 1 { "s" } else { "" }
-        );
+        eprintln!("    {} {}", "Building".cyan(), product_names.join(", "));
     }
 
     emit!(cmd.build.start, {
@@ -110,14 +106,18 @@ fn build_rust(
     let mut wasm_dir = target_dir.join("wasm32-wasi");
     wasm_dir.push(if opts.release { "release" } else { "debug" });
     emit!(cmd.build.prep_wasm);
-    for product_name in product_names {
-        let wasm_name = product_name + ".wasm";
+
+    let wasm_names = product_names
+        .into_iter()
+        .map(|n| n + ".wasm")
+        .collect::<Vec<_>>();
+    if opts.verbosity >= Verbosity::Normal {
+        eprintln!("   {} {}", "Preparing".cyan(), wasm_names.join(","));
+    }
+    for wasm_name in wasm_names {
         let wasm_file = wasm_dir.join(&wasm_name);
         if !wasm_file.is_file() {
             continue;
-        }
-        if opts.verbosity >= Verbosity::Normal {
-            eprintln!("    {} {}", "Preparing".cyan(), wasm_name,);
         }
         prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
     }

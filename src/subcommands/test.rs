@@ -58,11 +58,7 @@ fn test_rust(opts: TestOptions, manifest: Box<cargo_toml::Manifest>) -> Result<(
     );
 
     if opts.verbosity >= Verbosity::Normal {
-        eprintln!(
-            "     {} service{}",
-            "Testing".cyan(),
-            if num_products > 1 { "s" } else { "" }
-        );
+        eprintln!("     {} {}", "Testing".cyan(), product_names.join(", "));
     }
 
     emit!(cmd.test.start, {
