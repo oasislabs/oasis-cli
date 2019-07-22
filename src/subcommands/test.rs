@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, path::PathBuf};
 
 use colored::*;
 
@@ -31,7 +31,8 @@ impl super::ExecSubcommand for TestOptions {
 }
 
 pub fn test(opts: TestOptions) -> Result<(), failure::Error> {
-    match detect_project_type() {
+    let mut path = PathBuf::new();
+    match detect_project_type(&mut path) {
         ProjectType::Rust(manifest) => test_rust(opts, manifest),
         _ => Err(failure::format_err!("could not detect Oasis project type.")),
     }
