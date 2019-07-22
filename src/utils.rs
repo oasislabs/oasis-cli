@@ -4,7 +4,7 @@ pub enum ProjectType {
 }
 
 pub fn detect_project_type() -> ProjectType {
-    let cargo_toml = std::path::Path::new("Cargo.toml");
+    let cargo_toml = std::path::Path::new("service/Cargo.toml");
     if cargo_toml.exists() {
         let mut manifest = cargo_toml::Manifest::from_path(cargo_toml).unwrap();
         manifest

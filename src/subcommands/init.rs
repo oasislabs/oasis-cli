@@ -88,7 +88,7 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(dest.join("README.md"), format!("# {}", project_name))?;
 
-    let manifest_path = dest.join("Cargo.toml");
+    let manifest_path = dest.join("service/Cargo.toml");
     let manifest_lines = std::io::BufReader::new(std::fs::File::open(&manifest_path)?)
         .lines()
         .map(|line| {
@@ -97,6 +97,21 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
                 "authors = []".to_string()
             } else if line.starts_with("name = ") {
                 format!("name = \"{}\"", project_name)
+            } else {
+                line
+            })
+        })
+        .collect::<Result<Vec<_>, std::io::Error>>()?;
+
+    std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
+
+    let config_path = dest.join("application/client-test/config.js");
+    let config_lines = std::io::BufReader::new(std::fs::File::open(&config_path)?)
+        .lines()
+        .map(|line| {
+            let line = line?;
+            Ok(if line.starts_with("const WASM = ") {
+                format!("const WASM = \'../../service/target/service/{}.wasm\';", project_name)
             } else {
                 line
             })
