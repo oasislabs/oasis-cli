@@ -1,8 +1,12 @@
 [package]
 name = "oasis-cli"
 version = "0.1.0"
+license = "Apache-2.0"
 description = "Oasis developer tools"
 authors = ["Oasis Labs <feedback@oasislabs.com>"]
+repository = "https://github.com/oasislabs/oasis-cli.git"
+readme = "README.md"
+keywords = ["oasis"]
 edition = "2018"
 
 [[bin]]
@@ -35,3 +39,7 @@ webbrowser = "0.5"
 
 [build-dependencies]
 reqwest = "0.9"
+
+[profile.release]
+lto = true
+opt-level = 3

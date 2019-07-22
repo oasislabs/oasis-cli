@@ -16,7 +16,7 @@ mod telemetry;
 mod utils;
 
 use config::Config;
-use subcommands::{build, clean, deploy, ifextract, init, BuildOptions, InitOptions};
+use subcommands::*;
 
 fn main() {
     env_logger::Builder::from_default_env()
@@ -38,13 +38,14 @@ fn main() {
             (about: "Build services for the Oasis platform")
             (@arg release: --release "Build with optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
-            (@arg stack_size: --stack-size "Set the Wasm stack size")
-            (@arg hardmode: --hardmode "Build a vanilla WASI service")
+            (@arg stack_size: +takes_value --stack-size "Set the Wasm stack size")
+            (@arg wasi: --wasi "Build a vanilla WASI service")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
         )
         (@subcommand test =>
             (about: "Run integration tests against a simulated Oasis runtime.")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg SERVICE: +multiple "Specify which service(s) to build")
         )
         (@subcommand clean =>
             (about: "Remove build products")
@@ -57,13 +58,14 @@ fn main() {
         (@subcommand deploy =>
             (about: "Deploy a service to the Oasis blockchain")
         )
-        (@subcommand telemetry =>
-            (about: "Manage telemetry settings")
-            (@setting Hidden)
-            (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
-            (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
-            (@subcommand status => (about: "Check telemetry status"))
-            (@subcommand upload => (@setting Hidden))
+        (@subcommand config =>
+            (@subcommand telemetry =>
+                (about: "Manage telemetry settings")
+                (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
+                (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
+                (@subcommand status => (about: "Check telemetry status"))
+                (@subcommand upload => (@setting Hidden))
+            )
         )
     );
 
@@ -82,38 +84,48 @@ fn main() {
 
     let app_m = app.get_matches();
     let result = match app_m.subcommand() {
-        ("init", Some(m)) => InitOptions::new(&config, &m).and_then(init),
-        ("build", Some(m)) => BuildOptions::new(&config, &m).and_then(build),
+        ("init", Some(m)) => InitOptions::new(&m).exec(),
+        ("build", Some(m)) => BuildOptions::new(&m).exec(),
+        ("test", Some(m)) => TestOptions::new(&m).exec(),
         ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         ("deploy", Some(_)) => deploy(),
-        ("telemetry", Some(m)) => match m.subcommand() {
-            ("enable", _) => {
-                config.enable_telemetry(true);
-                println!("Telemetry is enabled.");
+        ("config", Some(m)) => match m.subcommand() {
+            ("telemetry", Some(m)) => match m.subcommand() {
+                ("enable", _) => {
+                    config.enable_telemetry(true);
+                    println!("Telemetry is enabled.");
+                    Ok(())
+                }
+                ("disable", _) => {
+                    config.enable_telemetry(false);
+                    println!("Telemetry is disabled.");
+                    Ok(())
+                }
+                ("status", _) => telemetry::metrics_path().map(|p| {
+                    println!(
+                        "Telemetry is {}.",
+                        if config.telemetry.enabled {
+                            "enabled"
+                        } else {
+                            "disabled"
+                        }
+                    );
+                    println!("Usage data is being written to `{}`", p.display());
+                }),
+                ("upload", _) => telemetry::upload(),
+                _ => {
+                    println!("{}", m.usage());
+                    Ok(())
+                }
+            },
+            _ => {
+                println!("{}", m.usage());
                 Ok(())
             }
-            ("disable", _) => {
-                config.enable_telemetry(false);
-                println!("Telemetry is disabled.");
-                Ok(())
-            }
-            ("status", _) => telemetry::metrics_path().map(|p| {
-                println!(
-                    "Telemetry is {}.",
-                    if config.telemetry.enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    }
-                );
-                println!("Usage data is being written to `{}`", p.display());
-            }),
-            ("upload", _) => telemetry::upload(),
-            _ => Ok(()),
         },
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
