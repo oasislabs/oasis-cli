@@ -12,10 +12,10 @@ fn main() {
         .get(reqwest::header::ETAG)
         .expect("Missing ETag");
 
-    let mut quickstart_path = std::path::PathBuf::from(dbg!(std::env::var("OUT_DIR")).unwrap());
+    let mut quickstart_path = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     quickstart_path.push(format!(
-        "quickstart{}-.tar.gz",
-        etag.to_str().expect("Invalid ETag")
+        "quickstart-{}.tar.gz",
+        etag.to_str().expect("Invalid ETag").replace('"', "")
     ));
     println!(
         "cargo:rustc-env=QUICKSTART_INCLUDE_PATH={}",
