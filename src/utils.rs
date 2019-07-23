@@ -4,7 +4,33 @@ pub enum ProjectType {
 }
 
 pub fn detect_project_type() -> ProjectType {
-    let cargo_toml = std::path::Path::new("service/Cargo.toml");
+    let cwd = std::path::Path::new(".");
+
+    // Search CWD for Cargo.toml
+    let mut cargo_toml = cwd.join("Cargo.toml").as_path();
+    if !cargo_toml.exists() {
+        // Search all subdirectories for Cargo.toml
+        for entry in std::fs::read_dir(".").unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                cargo_toml = path.join("Cargo.toml").as_path();
+                if cargo_toml.exists() {
+                    break;
+                }
+            }
+        }
+        
+        if !cargo_toml.exists() {
+            // Search all ancestors for Cargo.toml
+            for ancestor in cwd.ancestors() {
+                cargo_toml = ancestor.join("Cargo.toml").as_path();
+                if cargo_toml.exists() {
+                    break;
+                }
+            }
+        }
+    }
+
     if cargo_toml.exists() {
         let mut manifest = cargo_toml::Manifest::from_path(cargo_toml).unwrap();
         manifest

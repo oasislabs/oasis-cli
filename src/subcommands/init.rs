@@ -118,7 +118,7 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
         })
         .collect::<Result<Vec<_>, std::io::Error>>()?;
 
-    std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
+    std::fs::write(&config_path, config_lines.join("\n"))?;
 
     Ok(())
 }
