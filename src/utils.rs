@@ -1,34 +1,39 @@
+extern crate walkdir;
+
+use walkdir::WalkDir;
+
 pub enum ProjectType {
     Rust(Box<cargo_toml::Manifest>),
     Unknown,
 }
 
 pub fn detect_project_type() -> ProjectType {
-    let cwd = std::path::Path::new(".");
+    // Search CWD
+    let mut cargo_toml = std::path::Path::new("Cargo.toml");
 
-    // Search CWD for Cargo.toml
-    let mut cargo_toml = cwd.join("Cargo.toml").as_path();
+    // Search children
     if !cargo_toml.exists() {
-        // Search all subdirectories for Cargo.toml
-        for entry in std::fs::read_dir(".").unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                cargo_toml = path.join("Cargo.toml").as_path();
-                if cargo_toml.exists() {
-                    break;
-                }
-            }
-        }
-        
-        if !cargo_toml.exists() {
-            // Search all ancestors for Cargo.toml
-            for ancestor in cwd.ancestors() {
-                cargo_toml = ancestor.join("Cargo.toml").as_path();
-                if cargo_toml.exists() {
-                    break;
-                }
-            }
-        }
+        cargo_toml = match WalkDir::new(".")
+                .min_depth(1)
+                .max_depth(1)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .find(|e| e.path().file_name() == cargo_toml.file_name()) {
+            Some(e) => e.path(),
+            None    => std::path::Path::new("Cargo.toml"),
+        };
+    }
+
+    // Search ancestors
+    if !cargo_toml.exists() {
+        cargo_toml = match std::path::Path::new(".")
+                .ancestors()
+                .into_iter()
+                .map(|p| p.join("Cargo.toml"))
+                .find(|p| p.as_path().exists()) {
+            Some(p) => p.as_path(),
+            None => std::path::Path::new("Cargo.toml"),
+        };
     }
 
     if cargo_toml.exists() {
