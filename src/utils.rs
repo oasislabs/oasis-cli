@@ -1,5 +1,9 @@
 extern crate walkdir;
 
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use walkdir::WalkDir;
 
 pub enum ProjectType {
@@ -7,44 +11,45 @@ pub enum ProjectType {
     Unknown,
 }
 
-pub fn detect_project_type() -> ProjectType {
-    // Search CWD
-    let mut cargo_toml = std::path::Path::new("Cargo.toml");
+type CreateProject = fn(&Path) -> ProjectType;
 
-    // Search children
-    if !cargo_toml.exists() {
-        cargo_toml = match WalkDir::new(".")
-                .min_depth(1)
-                .max_depth(1)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .find(|e| e.path().file_name() == cargo_toml.file_name()) {
-            Some(e) => e.path(),
-            None    => std::path::Path::new("Cargo.toml"),
-        };
+const RUST_ARTIFACT: &str = "Cargo.toml";
+
+lazy_static! {
+    static ref CREATE_PROJECT: HashMap<&'static str, CreateProject> = {
+        let mut m: HashMap<&str, CreateProject> = HashMap::new();
+        m.insert(RUST_ARTIFACT, create_rust_project);
+        m
+    };
+}
+
+pub fn create_rust_project(artifact: &Path) -> ProjectType {
+    let mut manifest = cargo_toml::Manifest::from_path(artifact).unwrap();
+    manifest.complete_from_path(artifact).unwrap();
+    ProjectType::Rust(box manifest)
+}
+
+pub fn detect_project_type(path: &mut PathBuf) -> ProjectType {
+    // if cwd is empty then return default Rust project
+    if Path::new(".").read_dir().into_iter().len() == 0 {
+        path.push(RUST_ARTIFACT);
+        return create_rust_project(Path::new(&RUST_ARTIFACT));
     }
 
-    // Search ancestors
-    if !cargo_toml.exists() {
-        cargo_toml = match std::path::Path::new(".")
-                .ancestors()
-                .into_iter()
-                .map(|p| p.join("Cargo.toml"))
-                .find(|p| p.as_path().exists()) {
-            Some(p) => p.as_path(),
-            None => std::path::Path::new("Cargo.toml"),
-        };
+    for entry in WalkDir::new(".")
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let to_match = entry.file_name().to_str().unwrap();
+        if CREATE_PROJECT.contains_key(to_match) {
+            path.push(entry.path());
+            return (CREATE_PROJECT.get(to_match).unwrap())(entry.path());
+        }
     }
 
-    if cargo_toml.exists() {
-        let mut manifest = cargo_toml::Manifest::from_path(cargo_toml).unwrap();
-        manifest
-            .complete_from_path(std::path::Path::new("."))
-            .unwrap();
-        ProjectType::Rust(box manifest)
-    } else {
-        ProjectType::Unknown
-    }
+    path.push(".");
+    ProjectType::Unknown
 }
 
 #[macro_export]

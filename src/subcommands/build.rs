@@ -46,8 +46,9 @@ impl super::ExecSubcommand for BuildOptions {
 }
 
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    match detect_project_type() {
-        ProjectType::Rust(manifest) => build_rust(opts, manifest),
+    let mut path = PathBuf::new();
+    match detect_project_type(&mut path) {
+        ProjectType::Rust(manifest) => build_rust(opts, &path, manifest),
         ProjectType::Unknown => match opts.services.as_slice() {
             [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
                 let out_file = Path::new(svc).with_extension("wasm");
@@ -61,9 +62,12 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
 
 fn build_rust(
     opts: BuildOptions,
+    path: &PathBuf,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
-    let cargo_args = get_cargo_args(&opts, &*manifest)?;
+    let cargo_args = get_cargo_args(&opts, path, &*manifest)?;
+
+    println!("cargo args = {:?}", cargo_args);
 
     let product_names = if opts.services.is_empty() {
         manifest
@@ -95,7 +99,7 @@ fn build_rust(
         emit!(cmd.build.error);
     };
 
-    let target_dir = get_target_dir();
+    let target_dir = get_target_dir(path);
     // ^ MUST be called after `cargo build` to ensure that a `target` directory exists to be found
 
     let services_dir = target_dir.join("service");
@@ -128,6 +132,7 @@ fn build_rust(
 
 fn get_cargo_args<'a>(
     opts: &'a BuildOptions,
+    path: &'a PathBuf,
     manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
@@ -162,6 +167,9 @@ fn get_cargo_args<'a>(
         }
     }
 
+    cargo_args.push("--manifest-path");
+    cargo_args.push(path.as_os_str().to_str().unwrap());
+
     Ok(cargo_args)
 }
 
@@ -187,25 +195,34 @@ fn get_cargo_envs(
     Ok(envs)
 }
 
-pub fn get_target_dir() -> PathBuf {
+pub fn get_target_dir(path: &PathBuf) -> PathBuf {
     // Ideally this would use `cargo --build-plan`, but that resets incremental compilation,
     // for some reason. This is the next best thing.
     std::env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .ok()
         .or_else(|| {
-            std::env::current_dir().ok().and_then(|cwd| {
-                cwd.ancestors().find_map(|d| {
-                    let maybe_target = d.join("target");
-                    if maybe_target.join("wasm32-wasi").is_dir() {
-                        Some(maybe_target)
-                    } else {
-                        None
-                    }
-                })
-            })
+            let maybe_target = path.join("target");
+            if maybe_target.join("wasm32-wasi").is_dir() {
+                Some(maybe_target)
+            } else {
+                None
+            }
         })
-        .unwrap_or_else(|| PathBuf::from("target"))
+        .unwrap_or_else(|| {
+            path.parent()
+                .and_then(|wd| {
+                    wd.ancestors().find_map(|d| {
+                        let maybe_target = d.join("target");
+                        if maybe_target.join("wasm32-wasi").is_dir() {
+                            Some(maybe_target)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| PathBuf::from("target"))
+        })
 }
 
 pub fn prep_wasm(

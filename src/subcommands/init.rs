@@ -116,7 +116,10 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
         .map(|line| {
             let line = line?;
             Ok(if line.starts_with("const WASM = ") {
-                format!("const WASM = \'../service/target/service/{}.wasm\';", project_name)
+                format!(
+                    "const WASM = \'../service/target/service/{}.wasm\';",
+                    project_name
+                )
             } else {
                 line
             })
