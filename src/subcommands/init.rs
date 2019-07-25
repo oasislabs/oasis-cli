@@ -110,23 +110,34 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
 
-    let config_path = dest.join("application/config.js");
-    let config_lines = std::io::BufReader::new(std::fs::File::open(&config_path)?)
-        .lines()
-        .map(|line| {
-            let line = line?;
-            Ok(if line.starts_with("const WASM = ") {
-                format!(
-                    "const WASM = \'../service/target/service/{}.wasm\';",
-                    project_name
-                )
-            } else {
-                line
-            })
-        })
-        .collect::<Result<Vec<_>, std::io::Error>>()?;
+    let main_path = dest.join("service/src/main.rs");
+    replace_quickstart(
+        main_path,
+        inflector::cases::classcase::to_class_case(&project_name),
+    )?;
 
-    std::fs::write(&config_path, config_lines.join("\n"))?;
+    let package_path = dest.join("app/package.json");
+    replace_quickstart(package_path, project_name.clone())?;
+
+    let test_path = dest.join("app/test/service.spec.ts");
+    replace_quickstart(
+        test_path,
+        inflector::cases::classcase::to_class_case(&project_name),
+    )?;
+
+    Ok(())
+}
+
+fn replace_quickstart(
+    file_path: std::path::PathBuf,
+    replacement: String,
+) -> Result<(), failure::Error> {
+    let mut buffer = std::fs::read_to_string(&file_path)?;
+    buffer = buffer
+        .replace("Quickstart", &replacement)
+        .replace("quickstart", &replacement);
+
+    std::fs::write(&file_path, buffer)?;
 
     Ok(())
 }
