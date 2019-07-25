@@ -36,7 +36,7 @@ impl<'a> BuildOptions<'a> {
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
-            builder_args: m.values_of("builder_args").unwrap().collect(),
+            builder_args: m.values_of("builder_args").unwrap_or_default().collect(),
         })
     }
 }
@@ -48,8 +48,10 @@ impl<'a> super::ExecSubcommand for BuildOptions<'a> {
 }
 
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    match detect_project_type() {
-        ProjectType::Rust(manifest) => build_rust(opts, manifest),
+    let mut manifest_path = PathBuf::new();
+    match detect_project_type(&mut manifest_path)? {
+        ProjectType::Rust(manifest) => build_rust(opts, &manifest_path, manifest),
+        ProjectType::Javascript(_) => Ok(()),
         ProjectType::Unknown => match opts.services.as_slice() {
             [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
                 let out_file = Path::new(svc).with_extension("wasm");
@@ -63,9 +65,10 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
 
 fn build_rust(
     opts: BuildOptions,
+    manifest_path: &PathBuf,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
-    let cargo_args = get_cargo_args(&opts, &*manifest)?;
+    let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
 
     let product_names = if opts.services.is_empty() {
         manifest
@@ -81,7 +84,12 @@ fn build_rust(
     let cargo_envs = get_cargo_envs(&opts)?;
 
     if opts.verbosity >= Verbosity::Normal {
-        eprintln!("    {} {}", "Building".cyan(), product_names.join(", "));
+        eprintln!(
+            "    {} {} with manifest path {}",
+            "Building".cyan(),
+            product_names.join(", "),
+            manifest_path.display()
+        );
     }
 
     emit!(cmd.build.start, {
@@ -97,7 +105,7 @@ fn build_rust(
         emit!(cmd.build.error);
     };
 
-    let target_dir = get_target_dir();
+    let target_dir = get_target_dir(manifest_path);
     // ^ MUST be called after `cargo build` to ensure that a `target` directory exists to be found
 
     let services_dir = target_dir.join("service");
@@ -130,6 +138,7 @@ fn build_rust(
 
 fn get_cargo_args<'a>(
     opts: &'a BuildOptions,
+    manifest_path: &'a PathBuf,
     manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
@@ -168,6 +177,8 @@ fn get_cargo_args<'a>(
         cargo_args.push("--");
         cargo_args.extend(opts.builder_args.iter());
     }
+    cargo_args.push("--manifest-path");
+    cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
 
     Ok(cargo_args)
 }
@@ -194,22 +205,27 @@ fn get_cargo_envs(
     Ok(envs)
 }
 
-pub fn get_target_dir() -> PathBuf {
+fn test_for_target_dir(path: &PathBuf) -> Option<PathBuf> {
+    let maybe_target = path.join("target");
+    if maybe_target.join("wasm32-wasi").is_dir() {
+        Some(maybe_target)
+    } else {
+        None
+    }
+}
+
+pub fn get_target_dir(manifest_path: &PathBuf) -> PathBuf {
     // Ideally this would use `cargo --build-plan`, but that resets incremental compilation,
     // for some reason. This is the next best thing.
     std::env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .ok()
+        .or_else(|| test_for_target_dir(manifest_path))
         .or_else(|| {
-            std::env::current_dir().ok().and_then(|cwd| {
-                cwd.ancestors().find_map(|d| {
-                    let maybe_target = d.join("target");
-                    if maybe_target.join("wasm32-wasi").is_dir() {
-                        Some(maybe_target)
-                    } else {
-                        None
-                    }
-                })
+            manifest_path.parent().and_then(|workdir| {
+                workdir
+                    .ancestors()
+                    .find_map(|d| test_for_target_dir(&d.to_path_buf()))
             })
         })
         .unwrap_or_else(|| PathBuf::from("target"))
