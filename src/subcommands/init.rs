@@ -117,7 +117,10 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
     )?;
 
     let package_path = dest.join("app/package.json");
-    replace_quickstart(package_path, project_name.clone())?;
+    replace_quickstart(
+        package_path,
+        project_name.clone()
+    )?;
 
     let test_path = dest.join("app/test/service.spec.ts");
     replace_quickstart(
