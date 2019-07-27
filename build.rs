@@ -1,34 +1,38 @@
-const QUICKSTART_TGZ_URL: &'static str =
-    "https://codeload.github.com/oasislabs/quickstart/tar.gz/master";
+const QUICKSTART_VER: &str = "0.1";
+const QUICKSTART_TAGS_URL: &str = " https://api.github.com/repos/oasislabs/quickstart/tags";
 
-fn main() {
-    let client = reqwest::Client::new();
-    let head = client
-        .head(QUICKSTART_TGZ_URL)
-        .send()
-        .expect("Could not HEAD quickstart.tar.gz");
-    let etag = head
-        .headers()
-        .get(reqwest::header::ETAG)
-        .expect("Missing ETag");
+#[derive(serde::Deserialize)]
+struct GithubTag {
+    name: String,
+    tarball_url: String,
+}
 
-    let mut quickstart_path = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    quickstart_path.push(format!(
-        "quickstart-{}.tar.gz",
-        etag.to_str().expect("Invalid ETag").replace('"', "")
-    ));
+fn main() -> Result<(), failure::Error> {
+    let version_req = semver::VersionReq::parse(QUICKSTART_VER)?;
+    let tags = reqwest::get(QUICKSTART_TAGS_URL)?.json::<Vec<GithubTag>>()?;
+    let tag = tags
+        .iter()
+        .find(|tag| {
+            semver::Version::parse(&tag.name[1..] /* strip leading 'v' */)
+                .map(|v| version_req.matches(&v))
+                .unwrap_or_default()
+        })
+        .unwrap_or_else(|| panic!("No matching quickstart version for `{}`", QUICKSTART_VER));
+
+    let mut quickstart_path = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
+    quickstart_path.push(format!("quickstart-{}.tar.gz", tag.name));
+    println!("cargo:rustc-env=QUICKSTART_VER={}", QUICKSTART_VER);
     println!(
         "cargo:rustc-env=QUICKSTART_INCLUDE_PATH={}",
         quickstart_path.display()
     );
 
     if quickstart_path.is_file() {
-        return;
+        return Ok(());
     }
 
-    let mut quickstart_zip = std::fs::File::create(&quickstart_path).unwrap();
-    reqwest::get(QUICKSTART_TGZ_URL)
-        .expect("Could not GET quickstart.tar.gz")
-        .copy_to(&mut quickstart_zip)
-        .expect("Could not write quickstart.tar.gz");
+    let mut quickstart_tgz = std::fs::File::create(&quickstart_path)?;
+    reqwest::get(&tag.tarball_url)?.copy_to(&mut quickstart_tgz)?;
+
+    Ok(())
 }
