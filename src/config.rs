@@ -21,7 +21,7 @@ impl Default for Config {
         profiles.insert(
             "local".to_string(),
             Profile {
-                private_key: String::new(),
+                mnemonic: Some(String::new()),
                 endpoint: "http://localhost:8546".to_string(),
             },
         );
@@ -29,7 +29,7 @@ impl Default for Config {
         profiles.insert(
             "default".to_string(),
             Profile {
-                private_key: String::new(),
+                mnemonic: None,
                 endpoint: "https://gateway.devnet.oasiscloud.io".to_string(),
             },
         );
@@ -102,7 +102,7 @@ impl Config {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
     #[serde(default)]
-    pub private_key: String,
+    pub mnemonic: Option<String>,
     pub endpoint: String,
 }
 

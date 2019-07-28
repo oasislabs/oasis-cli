@@ -41,11 +41,13 @@ fn main() {
             (@arg stack_size: +takes_value --stack-size "Set the Wasm stack size")
             (@arg wasi: --wasi "Build a vanilla WASI service")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
+            (@arg builder_args: +raw "Args to pass to language-specific build tool")
         )
         (@subcommand test =>
             (about: "Run integration tests against a simulated Oasis runtime.")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
+            (@arg tester_args: +raw "Args to pass to language-specific test tool")
         )
         (@subcommand clean =>
             (about: "Remove build products")

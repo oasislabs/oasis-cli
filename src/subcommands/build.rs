@@ -12,16 +12,17 @@ use crate::{
     utils::{detect_project_type, ProjectType},
 };
 
-pub struct BuildOptions {
+pub struct BuildOptions<'a> {
     stack_size: Option<u32>,
     services: Vec<String>,
     release: bool,
     wasi: bool,
     verbosity: Verbosity,
+    builder_args: Vec<&'a str>,
 }
 
-impl BuildOptions {
-    pub fn new(m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+impl<'a> BuildOptions<'a> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
@@ -35,11 +36,12 @@ impl BuildOptions {
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            builder_args: m.values_of("builder_args").unwrap().collect(),
         })
     }
 }
 
-impl super::ExecSubcommand for BuildOptions {
+impl<'a> super::ExecSubcommand for BuildOptions<'a> {
     fn exec(self) -> Result<(), failure::Error> {
         build(self)
     }
@@ -160,6 +162,11 @@ fn get_cargo_args<'a>(
             cargo_args.push("--bin");
             cargo_args.push(service_name);
         }
+    }
+
+    if !opts.builder_args.is_empty() {
+        cargo_args.push("--");
+        cargo_args.extend(opts.builder_args.iter());
     }
 
     Ok(cargo_args)

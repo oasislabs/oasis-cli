@@ -8,23 +8,25 @@ use crate::{
     utils::{detect_project_type, ProjectType},
 };
 
-pub struct TestOptions {
+pub struct TestOptions<'a> {
     services: Vec<String>,
     release: bool,
     verbosity: Verbosity,
+    tester_args: Vec<&'a str>,
 }
 
-impl TestOptions {
-    pub fn new(m: &clap::ArgMatches) -> Result<Self, failure::Error> {
+impl<'a> TestOptions<'a> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
             release: m.is_present("release"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            tester_args: m.values_of("tester_args").unwrap().collect(),
         })
     }
 }
 
-impl super::ExecSubcommand for TestOptions {
+impl<'a> super::ExecSubcommand for TestOptions<'a> {
     fn exec(self) -> Result<(), failure::Error> {
         test(self)
     }
@@ -110,6 +112,11 @@ fn get_cargo_args<'a>(
             cargo_args.push("--bin");
             cargo_args.push(service_name);
         }
+    }
+
+    if !opts.tester_args.is_empty() {
+        cargo_args.push("--");
+        cargo_args.extend(opts.tester_args.iter());
     }
 
     Ok(cargo_args)
