@@ -4,8 +4,8 @@ use colored::*;
 
 use crate::{command::Verbosity, emit, error::Error};
 
-const QUICKSTART_URL: &str = "https://github.com/oasislabs/quickstart";
-const QUICKSTART_TGZ_BYTES: &[u8] = include_bytes!(env!("QUICKSTART_INCLUDE_PATH"));
+const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
+const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
 
 pub struct InitOptions<'a> {
     project_type: &'a str,
@@ -59,28 +59,16 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
         return Err(Error::FileAlreadyExists(dest.display().to_string()).into());
     }
 
-    match git2::Repository::clone(QUICKSTART_URL, dest) {
+    match clone_template_repo(dest) {
         Ok(_) => {
-            emit!(cmd.init, { "project_type": "rust", "source": "repo" });
-            std::fs::remove_dir_all(dest.join(".git"))?;
+            emit!(cmd.init, { "type": "rust", "source": "repo" });
         }
         Err(err) => {
-            emit!(cmd.init, {
-                "project_type": "rust",
-                "source": "archive",
-                "repo_err": err.to_string()
-            });
-            debug!("Could not clone quickstart repo: {}", err);
-            let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(QUICKSTART_TGZ_BYTES));
-            for entry in ar.entries()? {
-                let mut entry = entry?;
-                let entry_path = entry.path()?;
-                let file_path = match entry_path.strip_prefix("quickstart-master/") {
-                    Ok(suffix) if !suffix.ends_with("/") => dest.join(suffix),
-                    _ => continue,
-                };
-                entry.unpack(file_path)?;
-            }
+            emit!(cmd.init, { "type": "rust", "source": "tgz", "repo_err": err.to_string() });
+            debug!("Could not clone template repo: {}", err);
+            unpack_template_tgz(dest).map_err(|err| {
+                failure::format_err!("Could not unpack template archive: {}", err)
+            })?;
         }
     }
     git2::Repository::init(dest)?;
@@ -110,5 +98,41 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
 
+    Ok(())
+}
+
+fn clone_template_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
+    let repo = git2::Repository::clone(TEMPLATE_URL, dest)?;
+    let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
+    let tag_names = repo.tag_names(Some("v*"))?;
+    let tag = tag_names
+        .iter()
+        .find(|tag_name| {
+            semver::Version::parse(&tag_name.unwrap()[1..] /* strip leading 'v' */)
+                .map(|v| version_req.matches(&v))
+                .unwrap_or_default()
+        })
+        .unwrap() // build would have errored if the tag didn't exist
+        .unwrap(); // tag name is always utf8
+    repo.reset(
+        &repo
+            .find_reference(&format!("refs/tags/{}", tag))?
+            .peel_to_commit()?
+            .as_object(),
+        git2::ResetType::Hard,
+        None, /* checkout builder */
+    )?;
+    std::fs::remove_dir_all(dest.join(".git"))?;
+    Ok(())
+}
+
+fn unpack_template_tgz(dest: &std::path::Path) -> Result<(), failure::Error> {
+    let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(TEMPLATE_TGZ_BYTES));
+    for entry in ar.entries()? {
+        let mut entry = entry?;
+        let entry_path = entry.path()?;
+        let file_path = dest.join(entry_path.iter().skip(1).collect::<PathBuf>());
+        entry.unpack(file_path)?;
+    }
     Ok(())
 }

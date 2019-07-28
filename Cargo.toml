@@ -1,6 +1,6 @@
 [package]
 name = "oasis-cli"
-version = "0.1.0"
+version = "0.1.1"
 license = "Apache-2.0"
 description = "Oasis developer tools"
 authors = ["Oasis Labs <feedback@oasislabs.com>"]
@@ -29,6 +29,7 @@ oasis-rpc = { version = "0.1", features = ["import"] }
 once_cell = "0.2"
 rand = "0.7"
 reqwest = "0.9"
+semver = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tar = "0.4"
@@ -38,7 +39,10 @@ walrus = "0.8"
 webbrowser = "0.5"
 
 [build-dependencies]
+failure = "0.1"
 reqwest = "0.9"
+semver = "0.9"
+serde = { version = "1.0", features = ["derive"] }
 
 [profile.release]
 lto = true
