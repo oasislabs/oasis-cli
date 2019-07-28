@@ -4,8 +4,8 @@ use colored::*;
 
 use crate::{command::Verbosity, emit, error::Error};
 
-const QUICKSTART_URL: &str = "https://github.com/oasislabs/quickstart";
-const QUICKSTART_TGZ_BYTES: &[u8] = include_bytes!(env!("QUICKSTART_INCLUDE_PATH"));
+const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
+const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
 
 pub struct InitOptions<'a> {
     project_type: &'a str,
@@ -59,15 +59,15 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
         return Err(Error::FileAlreadyExists(dest.display().to_string()).into());
     }
 
-    match clone_quickstart_repo(dest) {
+    match clone_template_repo(dest) {
         Ok(_) => {
             emit!(cmd.init, { "type": "rust", "source": "repo" });
         }
         Err(err) => {
             emit!(cmd.init, { "type": "rust", "source": "tgz", "repo_err": err.to_string() });
-            debug!("Could not clone quickstart repo: {}", err);
-            unpack_quickstart_tgz(dest).map_err(|err| {
-                failure::format_err!("Could not unpack quickstart archive: {}", err)
+            debug!("Could not clone template repo: {}", err);
+            unpack_template_tgz(dest).map_err(|err| {
+                failure::format_err!("Could not unpack template archive: {}", err)
             })?;
         }
     }
@@ -101,9 +101,9 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
     Ok(())
 }
 
-fn clone_quickstart_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
-    let repo = git2::Repository::clone(QUICKSTART_URL, dest)?;
-    let version_req = semver::VersionReq::parse(env!("QUICKSTART_VER")).unwrap();
+fn clone_template_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
+    let repo = git2::Repository::clone(TEMPLATE_URL, dest)?;
+    let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
     let tag_names = repo.tag_names(Some("v*"))?;
     let tag = tag_names
         .iter()
@@ -126,8 +126,8 @@ fn clone_quickstart_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
     Ok(())
 }
 
-fn unpack_quickstart_tgz(dest: &std::path::Path) -> Result<(), failure::Error> {
-    let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(QUICKSTART_TGZ_BYTES));
+fn unpack_template_tgz(dest: &std::path::Path) -> Result<(), failure::Error> {
+    let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(TEMPLATE_TGZ_BYTES));
     for entry in ar.entries()? {
         let mut entry = entry?;
         let entry_path = entry.path()?;

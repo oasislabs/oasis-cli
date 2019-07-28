@@ -1,5 +1,5 @@
-const QUICKSTART_VER: &str = "0.1";
-const QUICKSTART_TAGS_URL: &str = " https://api.github.com/repos/oasislabs/quickstart/tags";
+const TEMPLATE_VER: &str = "0.1";
+const TEMPLATE_TAGS_URL: &str = " https://api.github.com/repos/oasislabs/template/tags";
 
 #[derive(serde::Deserialize)]
 struct GithubTag {
@@ -8,8 +8,8 @@ struct GithubTag {
 }
 
 fn main() -> Result<(), failure::Error> {
-    let version_req = semver::VersionReq::parse(QUICKSTART_VER)?;
-    let tags = reqwest::get(QUICKSTART_TAGS_URL)?.json::<Vec<GithubTag>>()?;
+    let version_req = semver::VersionReq::parse(TEMPLATE_VER)?;
+    let tags = reqwest::get(TEMPLATE_TAGS_URL)?.json::<Vec<GithubTag>>()?;
     let tag = tags
         .iter()
         .find(|tag| {
@@ -17,22 +17,22 @@ fn main() -> Result<(), failure::Error> {
                 .map(|v| version_req.matches(&v))
                 .unwrap_or_default()
         })
-        .unwrap_or_else(|| panic!("No matching quickstart version for `{}`", QUICKSTART_VER));
+        .unwrap_or_else(|| panic!("No matching template version for `{}`", TEMPLATE_VER));
 
-    let mut quickstart_path = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
-    quickstart_path.push(format!("quickstart-{}.tar.gz", tag.name));
-    println!("cargo:rustc-env=QUICKSTART_VER={}", QUICKSTART_VER);
+    let mut template_path = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
+    template_path.push(format!("template-{}.tar.gz", tag.name));
+    println!("cargo:rustc-env=TEMPLATE_VER={}", TEMPLATE_VER);
     println!(
-        "cargo:rustc-env=QUICKSTART_INCLUDE_PATH={}",
-        quickstart_path.display()
+        "cargo:rustc-env=TEMPLATE_INCLUDE_PATH={}",
+        template_path.display()
     );
 
-    if quickstart_path.is_file() {
+    if template_path.is_file() {
         return Ok(());
     }
 
-    let mut quickstart_tgz = std::fs::File::create(&quickstart_path)?;
-    reqwest::get(&tag.tarball_url)?.copy_to(&mut quickstart_tgz)?;
+    let mut template_tgz = std::fs::File::create(&template_path)?;
+    reqwest::get(&tag.tarball_url)?.copy_to(&mut template_tgz)?;
 
     Ok(())
 }
