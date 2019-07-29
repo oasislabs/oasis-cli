@@ -68,9 +68,11 @@ fn test_rust(
         OsString::from("oasis-build"),
     );
 
-    if opts.verbosity >= Verbosity::Normal {
+    if opts.verbosity == Verbosity::Normal {
+        eprintln!("     {} {}", "Testing".cyan(), product_names.join(", "));
+    } else if opts.verbosity > Verbosity::Normal {
         eprintln!(
-            "     {} {} with manifest path {}",
+            "     {} {} with manifest ({})",
             "Testing".cyan(),
             product_names.join(", "),
             manifest_path.display()
@@ -97,7 +99,9 @@ fn test_js(
     manifest_path: &PathBuf,
     _package_json: Box<serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    if opts.verbosity >= Verbosity::Normal {
+    if opts.verbosity == Verbosity::Normal {
+        eprintln!("     {}", "Testing".cyan());
+    } else if opts.verbosity > Verbosity::Normal {
         eprintln!(
             "     {} with package.json {}",
             "Testing".cyan(),

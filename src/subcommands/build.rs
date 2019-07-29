@@ -83,9 +83,11 @@ fn build_rust(
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    if opts.verbosity >= Verbosity::Normal {
+    if opts.verbosity == Verbosity::Normal {
+        eprintln!("    {} {}", "Building".cyan(), product_names.join(", "));
+    } else if opts.verbosity > Verbosity::Normal {
         eprintln!(
-            "    {} {} with manifest path {}",
+            "    {} {} with manifest ({})",
             "Building".cyan(),
             product_names.join(", "),
             manifest_path.display()
