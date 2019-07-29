@@ -166,12 +166,13 @@ fn get_cargo_args<'a>(
         }
     }
 
+    cargo_args.push("--manifest-path");
+    cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
+
     if !opts.tester_args.is_empty() {
         cargo_args.push("--");
         cargo_args.extend(opts.tester_args.iter());
     }
-    cargo_args.push("--manifest-path");
-    cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
 
     Ok(cargo_args)
 }
