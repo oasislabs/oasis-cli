@@ -1,4 +1,4 @@
-const TEMPLATE_VER: &str = "0.1";
+const TEMPLATE_VER: &str = "0.2";
 const TEMPLATE_TAGS_URL: &str = " https://api.github.com/repos/oasislabs/template/tags";
 
 #[derive(serde::Deserialize)]

@@ -98,24 +98,6 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
 
-    let config_path = dest.join("application/config.js");
-    let config_lines = std::io::BufReader::new(std::fs::File::open(&config_path)?)
-        .lines()
-        .map(|line| {
-            let line = line?;
-            Ok(if line.starts_with("const WASM = ") {
-                format!(
-                    "const WASM = \'../service/target/service/{}.wasm\';",
-                    project_name
-                )
-            } else {
-                line
-            })
-        })
-        .collect::<Result<Vec<_>, std::io::Error>>()?;
-
-    std::fs::write(&config_path, config_lines.join("\n"))?;
-
     Ok(())
 }
 
