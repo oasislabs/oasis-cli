@@ -24,9 +24,11 @@ failure = "0.1"
 flate2 = "1.0"
 fs2 = "0.4"
 git2 = "0.9"
+heck = "0.3"
 log = "0.4"
 oasis-rpc = { version = "0.1", features = ["import"] }
 once_cell = "0.2"
+phf = { version = "0.7", features = ["macros"] }
 rand = "0.7"
 reqwest = "0.9"
 semver = "0.9"
@@ -36,6 +38,7 @@ tar = "0.4"
 toml = "0.5"
 uuid = "0.7"
 walrus = "0.8"
+walkdir = "2.2"
 webbrowser = "0.5"
 
 [build-dependencies]

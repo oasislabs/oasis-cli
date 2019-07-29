@@ -1,4 +1,4 @@
-#![feature(box_syntax, concat_idents)]
+#![feature(box_syntax, concat_idents, proc_macro_hygiene)]
 
 #[macro_use]
 extern crate clap;

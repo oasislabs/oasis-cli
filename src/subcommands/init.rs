@@ -1,8 +1,13 @@
-use std::{io::BufRead as _, path::PathBuf};
+use std::path::{Path, PathBuf};
 
 use colored::*;
+use heck::CamelCase;
 
-use crate::{command::Verbosity, emit, error::Error};
+use crate::{
+    command::{run_cmd, Verbosity},
+    emit,
+    error::Error,
+};
 
 const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
 const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
@@ -81,27 +86,13 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(dest.join("README.md"), format!("# {}", project_name))?;
 
-    let manifest_path = dest.join("Cargo.toml");
-    let manifest_lines = std::io::BufReader::new(std::fs::File::open(&manifest_path)?)
-        .lines()
-        .map(|line| {
-            let line = line?;
-            Ok(if line.starts_with("authors = [") {
-                "authors = []".to_string()
-            } else if line.starts_with("name = ") {
-                format!("name = \"{}\"", project_name)
-            } else {
-                line
-            })
-        })
-        .collect::<Result<Vec<_>, std::io::Error>>()?;
-
-    std::fs::write(&manifest_path, manifest_lines.join("\n"))?;
+    sed(dest, "quickstart", &project_name)?;
+    sed(dest, "Quickstart", &project_name.to_camel_case())?;
 
     Ok(())
 }
 
-fn clone_template_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
+fn clone_template_repo(dest: &Path) -> Result<(), failure::Error> {
     let repo = git2::Repository::clone(TEMPLATE_URL, dest)?;
     let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
     let tag_names = repo.tag_names(Some("v*"))?;
@@ -126,7 +117,7 @@ fn clone_template_repo(dest: &std::path::Path) -> Result<(), failure::Error> {
     Ok(())
 }
 
-fn unpack_template_tgz(dest: &std::path::Path) -> Result<(), failure::Error> {
+fn unpack_template_tgz(dest: &Path) -> Result<(), failure::Error> {
     let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(TEMPLATE_TGZ_BYTES));
     for entry in ar.entries()? {
         let mut entry = entry?;
@@ -135,4 +126,14 @@ fn unpack_template_tgz(dest: &std::path::Path) -> Result<(), failure::Error> {
         entry.unpack(file_path)?;
     }
     Ok(())
+}
+
+#[rustfmt::skip]
+fn sed(path: &Path, search: &str, replace: &str) -> Result<(), failure::Error> {
+    let find_args = &[
+        path.to_str().unwrap(),
+        "-type", "f",
+        "-exec", "sed", "-i", "-e", &format!("s/{}/{}/g", search, replace), "{}", "+",
+    ];
+    run_cmd("find", find_args, Verbosity::Debug)
 }

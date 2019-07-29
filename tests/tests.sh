@@ -91,7 +91,7 @@ function init_project() {
     # echo to stdin the expected input for the setup of the tool
     # reply 'y' to enable telemetry and '12345' to the local private key
     # for testing
-    printf 'y\n' | $OASIS_CLI_BINARY init my_project > /dev/null 2>&1
+    printf 'y\n' | $OASIS_CLI_BINARY init my_project > /dev/null
 }
 
 function test_oasis_setup_ok_with_telemetry() {
