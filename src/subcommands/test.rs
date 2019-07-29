@@ -97,7 +97,7 @@ fn test_rust(
 fn test_js(
     opts: TestOptions,
     manifest_path: &PathBuf,
-    _package_json: Box<serde_json::Value>,
+    _package_json: serde_json::Value,
 ) -> Result<(), failure::Error> {
     if opts.verbosity == Verbosity::Normal {
         eprintln!("     {}", "Testing".cyan());

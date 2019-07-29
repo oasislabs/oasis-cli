@@ -5,7 +5,7 @@ use std::{
 
 pub enum ProjectType {
     Rust(Box<cargo_toml::Manifest>),
-    Javascript(Box<serde_json::Value>),
+    Javascript(serde_json::Value),
     Unknown,
 }
 
@@ -25,7 +25,7 @@ fn create_rust_project(artifact: &Path) -> Result<ProjectType, failure::Error> {
 }
 
 fn create_js_project(artifact: &Path) -> Result<ProjectType, failure::Error> {
-    Ok(ProjectType::Javascript(box serde_json::from_slice(
+    Ok(ProjectType::Javascript(serde_json::from_slice(
         &std::fs::read(artifact)?,
     )?))
 }
@@ -71,7 +71,7 @@ fn find_ancestors(start: &Path) -> Option<Vec<PathBuf>> {
             break;
         }
         ancestors.push(prefix.clone());
-        for e in prefix.read_dir().expect("read_dir call failed") {
+        for e in prefix.read_dir().unwrap() {
             if let Ok(e) = e {
                 if e.file_name() == Path::new(".git") {
                     return Some(ancestors);
