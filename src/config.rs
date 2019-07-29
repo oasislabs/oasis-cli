@@ -21,7 +21,10 @@ impl Default for Config {
         profiles.insert(
             "local".to_string(),
             Profile {
-                mnemonic: Some(String::new()),
+                mnemonic: Some(
+                    "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
+                        .to_string(),
+                ),
                 endpoint: "http://localhost:8546".to_string(),
             },
         );
