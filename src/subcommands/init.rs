@@ -3,11 +3,7 @@ use std::path::{Path, PathBuf};
 use colored::*;
 use heck::CamelCase;
 
-use crate::{
-    command::{run_cmd, Verbosity},
-    emit,
-    error::Error,
-};
+use crate::{command::Verbosity, emit, error::Error};
 
 const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
 const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
@@ -86,8 +82,7 @@ fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
 
     std::fs::write(dest.join("README.md"), format!("# {}", project_name))?;
 
-    sed(dest, "quickstart", &project_name)?;
-    sed(dest, "Quickstart", &project_name.to_camel_case())?;
+    rename_project(dest, &project_name)?;
 
     Ok(())
 }
@@ -128,12 +123,20 @@ fn unpack_template_tgz(dest: &Path) -> Result<(), failure::Error> {
     Ok(())
 }
 
-#[rustfmt::skip]
-fn sed(path: &Path, search: &str, replace: &str) -> Result<(), failure::Error> {
-    let find_args = &[
-        path.to_str().unwrap(),
-        "-type", "f",
-        "-exec", "sed", "-i", "-e", &format!("s/{}/{}/g", search, replace), "{}", "+",
-    ];
-    run_cmd("find", find_args, Verbosity::Debug)
+fn rename_project(dir: &Path, project_name: &str) -> Result<(), failure::Error> {
+    let service_name = project_name.to_camel_case();
+    for f in walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_entry(|e| e.file_type().is_file())
+    {
+        let f = f?;
+        let p = f.path();
+        std::fs::write(
+            p,
+            std::fs::read_to_string(p)?
+                .replace("quickstart", project_name)
+                .replace("Quickstart", &service_name),
+        )?;
+    }
+    Ok(())
 }
