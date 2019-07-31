@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use colored::*;
-use heck::CamelCase;
+use heck::{CamelCase, SnakeCase};
 
 use crate::{command::Verbosity, emit, error::Error};
 
@@ -124,6 +124,7 @@ fn unpack_template_tgz(dest: &Path) -> Result<(), failure::Error> {
 }
 
 fn rename_project(dir: &Path, project_name: &str) -> Result<(), failure::Error> {
+    let project_name = project_name.to_snake_case();
     let service_name = project_name.to_camel_case();
     for f in walkdir::WalkDir::new(dir)
         .into_iter()
@@ -134,7 +135,7 @@ fn rename_project(dir: &Path, project_name: &str) -> Result<(), failure::Error> 
         std::fs::write(
             p,
             std::fs::read_to_string(p)?
-                .replace("quickstart", project_name)
+                .replace("quickstart", &project_name)
                 .replace("Quickstart", &service_name),
         )?;
     }
