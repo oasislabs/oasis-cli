@@ -36,7 +36,7 @@ fn main() {
         )
         (@subcommand build =>
             (about: "Build services for the Oasis platform")
-            (@arg release: --release "Build with optimizations")
+            (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg stack_size: +takes_value --stack-size "Set the Wasm stack size")
             (@arg wasi: --wasi "Build a vanilla WASI service")
@@ -45,6 +45,7 @@ fn main() {
         )
         (@subcommand test =>
             (about: "Run integration tests against a simulated Oasis runtime.")
+            (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")

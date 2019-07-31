@@ -15,7 +15,7 @@ use crate::{
 pub struct BuildOptions<'a> {
     stack_size: Option<u32>,
     services: Vec<String>,
-    release: bool,
+    debug: bool,
     wasi: bool,
     verbosity: Verbosity,
     builder_args: Vec<&'a str>,
@@ -32,7 +32,7 @@ impl<'a> BuildOptions<'a> {
                 }) => None,
                 Err(err) => return Err(err.into()),
             },
-            release: m.is_present("release"),
+            debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
@@ -55,7 +55,7 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
         ProjectType::Unknown => match opts.services.as_slice() {
             [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
                 let out_file = Path::new(svc).with_extension("wasm");
-                prep_wasm(&Path::new(svc), &out_file, opts.release)?;
+                prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
                 Ok(())
             }
             _ => Err(failure::format_err!("could not detect Oasis project type.")),
@@ -83,21 +83,20 @@ fn build_rust(
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    if opts.verbosity == Verbosity::Normal {
-        eprintln!("    {} {}", "Building".cyan(), product_names.join(", "));
-    } else if opts.verbosity > Verbosity::Normal {
-        eprintln!(
-            "    {} {} with manifest ({})",
-            "Building".cyan(),
-            product_names.join(", "),
-            manifest_path.display()
-        );
-    }
+    eprintln!(
+        "    {} {}{}",
+        "Building".cyan(),
+        product_names.join(", "),
+        if opts.verbosity > Verbosity::Normal {
+            format!(" ({})", manifest_path.display())
+        } else {
+            "".to_string()
+        }
+    );
 
     emit!(cmd.build.start, {
         "project_type": "rust",
         "num_services": num_products,
-        "release": opts.release,
         "wasi": opts.wasi,
         "stack_size": opts.stack_size,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
@@ -116,7 +115,7 @@ fn build_rust(
     }
 
     let mut wasm_dir = target_dir.join("wasm32-wasi");
-    wasm_dir.push(if opts.release { "release" } else { "debug" });
+    wasm_dir.push(if opts.debug { "debug" } else { "release" });
     emit!(cmd.build.prep_wasm);
 
     let wasm_names = product_names
@@ -131,7 +130,7 @@ fn build_rust(
         if !wasm_file.is_file() {
             continue;
         }
-        prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.release)?;
+        prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.debug)?;
     }
 
     emit!(cmd.build.done);
@@ -152,7 +151,7 @@ fn get_cargo_args<'a>(
         cargo_args.push("-vvv")
     }
 
-    if opts.release {
+    if !opts.debug {
         cargo_args.push("--release");
     }
 
@@ -233,16 +232,12 @@ pub fn get_target_dir(manifest_path: &PathBuf) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("target"))
 }
 
-pub fn prep_wasm(
-    input_wasm: &Path,
-    output_wasm: &Path,
-    release: bool,
-) -> Result<(), failure::Error> {
+pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(), failure::Error> {
     let mut module = walrus::Module::from_file(input_wasm)?;
 
     externalize_mem(&mut module);
 
-    if release {
+    if !debug {
         let customs_to_delete = module
             .customs
             .iter()

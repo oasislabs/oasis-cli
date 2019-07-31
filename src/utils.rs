@@ -5,7 +5,7 @@ use std::{
 
 pub enum ProjectType {
     Rust(Box<cargo_toml::Manifest>),
-    Javascript(serde_json::Value),
+    Javascript(serde_json::Map<String, serde_json::Value>),
     Unknown,
 }
 

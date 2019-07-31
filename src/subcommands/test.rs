@@ -10,7 +10,7 @@ use crate::{
 
 pub struct TestOptions<'a> {
     services: Vec<String>,
-    release: bool,
+    debug: bool,
     verbosity: Verbosity,
     tester_args: Vec<&'a str>,
 }
@@ -18,7 +18,7 @@ pub struct TestOptions<'a> {
 impl<'a> TestOptions<'a> {
     pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
         Ok(Self {
-            release: m.is_present("release"),
+            debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             verbosity: Verbosity::from(m.occurrences_of("verbose")),
             tester_args: m.values_of("tester_args").unwrap_or_default().collect(),
@@ -68,21 +68,21 @@ fn test_rust(
         OsString::from("oasis-build"),
     );
 
-    if opts.verbosity == Verbosity::Normal {
-        eprintln!("     {} {}", "Testing".cyan(), product_names.join(", "));
-    } else if opts.verbosity > Verbosity::Normal {
-        eprintln!(
-            "     {} {} with manifest ({})",
-            "Testing".cyan(),
-            product_names.join(", "),
-            manifest_path.display()
-        );
-    }
+    eprintln!(
+        "     {} {}{}",
+        "Testing".cyan(),
+        product_names.join(", "),
+        if opts.verbosity > Verbosity::Normal {
+            format!(" ({})", manifest_path.display())
+        } else {
+            "".to_string()
+        }
+    );
 
     emit!(cmd.test.start, {
         "project_type": "rust",
         "num_services": num_products,
-        "release": opts.release,
+        "debug": opts.debug,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
@@ -97,24 +97,25 @@ fn test_rust(
 fn test_js(
     opts: TestOptions,
     manifest_path: &PathBuf,
-    _package_json: serde_json::Value,
+    package_json: serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    if opts.verbosity == Verbosity::Normal {
-        eprintln!("     {}", "Testing".cyan());
-    } else if opts.verbosity > Verbosity::Normal {
-        eprintln!(
-            "     {} with package.json {}",
-            "Testing".cyan(),
-            manifest_path.display()
-        );
-    }
+    eprintln!(
+        "     {} {}{}",
+        "Testing".cyan(),
+        package_json["name"].as_str().unwrap(),
+        if opts.verbosity > Verbosity::Normal {
+            format!(" ({})", manifest_path.display())
+        } else {
+            "".to_string()
+        }
+    );
 
     emit!(cmd.test.start, {
-        "project_type": "Javascript",
+        "project_type": "js",
         "tester_args": opts.tester_args,
     });
 
-    let mut tester_args = vec!["run"];
+    let mut tester_args = vec!["test"];
     tester_args.push("--prefix");
     tester_args.push(manifest_path.as_os_str().to_str().unwrap());
     if !opts.tester_args.is_empty() {
@@ -143,7 +144,7 @@ fn get_cargo_args<'a>(
         cargo_args.push("-vvv")
     }
 
-    if opts.release {
+    if !opts.debug {
         cargo_args.push("--release");
     }
 
