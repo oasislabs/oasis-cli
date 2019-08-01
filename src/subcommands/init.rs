@@ -126,11 +126,11 @@ fn unpack_template_tgz(dest: &Path) -> Result<(), failure::Error> {
 fn rename_project(dir: &Path, project_name: &str) -> Result<(), failure::Error> {
     let project_name = project_name.to_snake_case();
     let service_name = project_name.to_camel_case();
-    for f in walkdir::WalkDir::new(dir)
-        .into_iter()
-        .filter_entry(|e| e.file_type().is_file())
-    {
+    for f in walkdir::WalkDir::new(dir).into_iter() {
         let f = f?;
+        if !f.file_type().is_file() {
+            continue;
+        }
         let p = f.path();
         std::fs::write(
             p,
