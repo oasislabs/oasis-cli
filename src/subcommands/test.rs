@@ -3,7 +3,7 @@ use std::{ffi::OsString, path::PathBuf};
 use colored::*;
 
 use crate::{
-    command::{run_cmd, run_cmd_with_env, Verbosity},
+    command::{run_cmd_with_env, Verbosity},
     emit,
     utils::{detect_project_type, ProjectType},
 };
@@ -115,14 +115,16 @@ fn test_js(
         "tester_args": opts.tester_args,
     });
 
-    let mut tester_args = vec!["test"];
-    tester_args.push("--prefix");
-    tester_args.push(manifest_path.as_os_str().to_str().unwrap());
+    let mut npm_args = vec!["test"];
+    npm_args.push("--prefix");
+    npm_args.push(manifest_path.as_os_str().to_str().unwrap());
     if !opts.tester_args.is_empty() {
-        tester_args.push("--");
-        tester_args.extend(opts.tester_args.iter());
+        npm_args.push("--");
+        npm_args.extend(opts.tester_args.iter());
     }
-    if run_cmd("npm", tester_args, opts.verbosity).is_err() {
+    let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+    npm_envs.insert(OsString::from("OASIS_PROFILE"), OsString::from("local"));
+    if run_cmd_with_env("npm", npm_args, opts.verbosity, npm_envs).is_err() {
         emit!(cmd.test.error);
     };
 
