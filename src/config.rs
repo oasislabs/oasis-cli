@@ -130,14 +130,3 @@ impl Default for Telemetry {
         }
     }
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Logging {
-    #[serde(skip)]
-    pub path_stdout: PathBuf,
-    #[serde(skip)]
-    pub path_stderr: PathBuf,
-    pub dir: PathBuf,
-    pub enabled: bool,
-    pub id: String,
-}
