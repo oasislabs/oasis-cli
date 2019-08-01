@@ -91,18 +91,20 @@ fn clone_template_repo(dest: &Path) -> Result<(), failure::Error> {
     let repo = git2::Repository::clone(TEMPLATE_URL, dest)?;
     let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
     let tag_names = repo.tag_names(Some("v*"))?;
-    let tag = tag_names
-        .iter()
-        .find(|tag_name| {
-            semver::Version::parse(&tag_name.unwrap()[1..] /* strip leading 'v' */)
-                .map(|v| version_req.matches(&v))
-                .unwrap_or_default()
-        })
-        .unwrap() // build would have errored if the tag didn't exist
-        .unwrap(); // tag name is always utf8
+    let mut latest_tag = "";
+    let mut latest_ver = semver::Version::new(0, 0, 0);
+    for tag_name in tag_names.iter() {
+        let tag_name = tag_name.unwrap();
+        if let Ok(ver) = semver::Version::parse(&tag_name[1..] /* strip leading 'v' */) {
+            if version_req.matches(&ver) && ver > latest_ver {
+                latest_ver = ver;
+                latest_tag = tag_name;
+            }
+        }
+    }
     repo.reset(
         &repo
-            .find_reference(&format!("refs/tags/{}", tag))?
+            .find_reference(&format!("refs/tags/{}", latest_tag))?
             .peel_to_commit()?
             .as_object(),
         git2::ResetType::Hard,
