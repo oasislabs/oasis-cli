@@ -45,11 +45,12 @@ pub fn ask_string(question: &str) -> Result<String, failure::Error> {
 }
 
 fn prompt_yn(prompt: &str, default: bool) -> Result<bool, failure::Error> {
-    let response = ask_string(prompt)?;
-    Ok(match response.to_lowercase().as_str() {
-        "y" | "yes" | "true" => true,
-        "n" | "no" | "false" => false,
-        "" => default,
-        _ => prompt_yn(prompt, default)?,
+    Ok(loop {
+        break match ask_string(prompt)?.to_lowercase().as_str() {
+            "y" | "yes" | "true" => true,
+            "n" | "no" | "false" => false,
+            "" => default,
+            _ => continue,
+        };
     })
 }
