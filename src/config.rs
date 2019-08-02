@@ -75,18 +75,29 @@ impl Config {
         if let Some(profile) = self.profiles.get_mut(&profile_name.to_string()) {
             match name {
                 "mnemonic" => {
-                    (*profile).mnemonic = Some(
+                    (*profile).mnemonic = Some(value.to_string());
+                    println!(
+                        "Set mnemonic to `{}` in `{}` profile.\n",
                         value.to_string(),
+                        profile_name.to_string()
                     );
-                },
+                }
                 "private_key" => {
-                    (*profile).private_key = Some(
+                    (*profile).private_key = Some(value.to_string());
+                    println!(
+                        "Set private key to `{}` in `{}` profile.\n",
                         value.to_string(),
+                        profile_name.to_string()
                     );
-                },
+                }
                 "endpoint" => {
                     (*profile).endpoint = value.to_string();
-                },
+                    println!(
+                        "Set endpoint to `{}` in `{}` profile.\n",
+                        value.to_string(),
+                        profile_name.to_string()
+                    );
+                }
                 _ => (),
             }
         }

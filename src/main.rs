@@ -142,7 +142,7 @@ fn main() {
                     m.value_of("VALUE").unwrap(),
                 );
                 Ok(())
-            },
+            }
             _ => {
                 println!("{}", m.usage());
                 Ok(())
