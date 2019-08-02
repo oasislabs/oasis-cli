@@ -1,40 +1,38 @@
-use std::path::PathBuf;
-
 use crate::{
     command::{run_cmd, Verbosity},
     emit,
-    utils::{detect_project_type, ProjectType},
+    utils::{detect_projects, ProjectKind},
 };
 
 pub fn clean() -> Result<(), failure::Error> {
-    let mut manifest_path = PathBuf::new();
-    match detect_project_type(&mut manifest_path)? {
-        ProjectType::Unknown => Ok(()),
-        ProjectType::Rust(_) => {
-            emit!(cmd.clean, "rust");
-            run_cmd(
-                "cargo",
-                &[
-                    "clean",
-                    "--manifest-path",
-                    manifest_path.as_os_str().to_str().unwrap(),
-                ],
-                Verbosity::Silent,
-            )
-        }
-        ProjectType::Javascript(_) => {
-            manifest_path.pop();
-            emit!(cmd.clean, "javascript");
-            run_cmd(
-                "npm",
-                &[
-                    "run-script",
-                    "--prefix",
-                    manifest_path.as_os_str().to_str().unwrap(),
-                    "clean",
-                ],
-                Verbosity::Silent,
-            )
+    for proj in detect_projects()? {
+        match proj.kind {
+            ProjectKind::Rust(_) => {
+                emit!(cmd.clean, "rust");
+                run_cmd(
+                    "cargo",
+                    &[
+                        "clean",
+                        "--manifest-path",
+                        proj.manifest_path.to_str().unwrap(),
+                    ],
+                    Verbosity::Silent,
+                )?;
+            }
+            ProjectKind::Javascript(_) => {
+                emit!(cmd.clean, "javascript");
+                run_cmd(
+                    "npm",
+                    &[
+                        "run-script",
+                        "--prefix",
+                        proj.manifest_path.parent().unwrap().to_str().unwrap(),
+                        "clean",
+                    ],
+                    Verbosity::Silent,
+                )?;
+            }
         }
     }
+    Ok(())
 }

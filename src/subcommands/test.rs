@@ -1,11 +1,9 @@
-use std::{ffi::OsString, path::PathBuf};
-
-use colored::*;
+use std::{ffi::OsString, path::Path};
 
 use crate::{
     command::{run_cmd_with_env, Verbosity},
     emit,
-    utils::{detect_project_type, ProjectType},
+    utils::{detect_projects, print_status, ProjectKind, Status},
 };
 
 pub struct TestOptions<'a> {
@@ -33,20 +31,20 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
 }
 
 pub fn test(opts: TestOptions) -> Result<(), failure::Error> {
-    let mut manifest_path = PathBuf::new();
-    match detect_project_type(&mut manifest_path)? {
-        ProjectType::Rust(manifest) => test_rust(opts, &manifest_path, manifest),
-        ProjectType::Javascript(manifest) => {
-            manifest_path.pop();
-            test_js(opts, &manifest_path, manifest)
+    for proj in detect_projects()? {
+        match proj.kind {
+            ProjectKind::Rust(manifest) => test_rust(&opts, &proj.manifest_path, manifest)?,
+            ProjectKind::Javascript(manifest) => {
+                test_js(&opts, &proj.manifest_path.parent().unwrap(), manifest)?
+            }
         }
-        _ => Err(failure::format_err!("could not detect Oasis project type.")),
     }
+    Ok(())
 }
 
 fn test_rust(
-    opts: TestOptions,
-    manifest_path: &PathBuf,
+    opts: &TestOptions,
+    manifest_path: &Path,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
@@ -68,15 +66,10 @@ fn test_rust(
         OsString::from("oasis-build"),
     );
 
-    eprintln!(
-        "     {} {}{}",
-        "Testing".cyan(),
+    print_status(
+        Status::Testing,
         product_names.join(", "),
-        if opts.verbosity > Verbosity::Normal {
-            format!(" ({})", manifest_path.display())
-        } else {
-            "".to_string()
-        }
+        Some(manifest_path.parent().unwrap()),
     );
 
     emit!(cmd.test.start, {
@@ -95,19 +88,14 @@ fn test_rust(
 }
 
 fn test_js(
-    opts: TestOptions,
-    manifest_path: &PathBuf,
+    opts: &TestOptions,
+    manifest_path: &Path,
     package_json: serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    eprintln!(
-        "     {} {}{}",
-        "Testing".cyan(),
+    print_status(
+        Status::Testing,
         package_json["name"].as_str().unwrap(),
-        if opts.verbosity > Verbosity::Normal {
-            format!(" ({})", manifest_path.display())
-        } else {
-            "".to_string()
-        }
+        Some(manifest_path.parent().unwrap()),
     );
 
     emit!(cmd.test.start, {
@@ -134,7 +122,7 @@ fn test_js(
 
 fn get_cargo_args<'a>(
     opts: &'a TestOptions,
-    manifest_path: &'a PathBuf,
+    manifest_path: &'a Path,
     manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["test"];

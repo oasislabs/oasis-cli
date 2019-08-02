@@ -17,8 +17,8 @@ pub enum Error {
     ReadFile(String, String),
     #[fail(display = "failed to join thread")]
     JoinThread,
-    #[fail(display = "unknown project type: `{}`", _0)]
-    UnknownProjectType(String),
+    #[fail(display = "no project in `{}` or any parent directory", _0)]
+    DetectProject(String),
     #[fail(display = "destination path `{}` already exists.", _0)]
     FileAlreadyExists(String),
 }

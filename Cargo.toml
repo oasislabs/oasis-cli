@@ -25,10 +25,10 @@ flate2 = "1.0"
 fs2 = "0.4"
 git2 = "0.9"
 heck = "0.3"
+ignore = "0.4"
 log = "0.4"
 oasis-rpc = { version = "0.1", features = ["import"] }
 once_cell = "0.2"
-phf = { version = "0.7", features = ["macros"] }
 rand = "0.7"
 reqwest = "0.9"
 semver = "0.9"
