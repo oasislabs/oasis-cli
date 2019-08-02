@@ -1,4 +1,5 @@
 mod build;
+mod chain;
 mod clean;
 mod deploy;
 mod ifextract;
@@ -6,6 +7,7 @@ mod init;
 mod test;
 
 pub use build::{build, BuildOptions};
+pub use chain::run_chain;
 pub use clean::clean;
 pub use deploy::deploy;
 pub use ifextract::ifextract;
