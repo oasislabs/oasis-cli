@@ -7,13 +7,11 @@ use colored::*;
 
 use crate::error::Error;
 
-#[derive(Debug)]
 pub struct Project {
     pub manifest_path: PathBuf,
     pub kind: ProjectKind,
 }
 
-#[derive(Debug)]
 pub enum ProjectKind {
     Rust(Box<cargo_toml::Manifest>),
     Javascript(serde_json::Map<String, serde_json::Value>),
@@ -38,34 +36,44 @@ impl ProjectKind {
 pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
     let cwd = std::env::current_dir()?;
     let enoproj = || Error::DetectProject(format!("{}", cwd.display()));
-    git2::Repository::discover(&cwd).map_err(|_| enoproj())?;
+    let root = git2::Repository::discover(&cwd)
+        .map_err(|_| enoproj())?
+        .path()
+        .parent() // remove the .git
+        .unwrap()
+        .to_path_buf();
 
     let mut projects = std::collections::HashMap::new();
-    for entry in ignore::Walk::new(cwd) {
-        let entry = entry?;
-        if projects.contains_key(entry.path()) {
-            continue;
+    for ancestor in cwd.ancestors() {
+        let mut found_project = false;
+        for entry in ignore::Walk::new(ancestor) {
+            let entry = entry?;
+            if projects.contains_key(entry.path()) {
+                continue;
+            }
+            if let Some(project_kind) = ProjectKind::from_manifest(entry.path())? {
+                found_project = true;
+                projects.insert(
+                    entry.path().to_path_buf(),
+                    Project {
+                        manifest_path: entry.path().to_path_buf(),
+                        kind: project_kind,
+                    },
+                );
+            }
         }
-        if let Some(project_kind) = ProjectKind::from_manifest(entry.path())? {
-            projects.insert(
-                entry.path().to_path_buf(),
-                Project {
-                    manifest_path: entry.path().to_path_buf(),
-                    kind: project_kind,
-                },
-            );
+        if ancestor == root || found_project {
+            break;
         }
     }
 
     let mut projects: Vec<Project> = projects.into_iter().map(|(_, v)| v).collect();
-    projects.sort_by(|a, b| {
-        // build rust service before js app
-        use std::cmp::Ordering::*;
+    projects.sort_unstable_by(|a, b| {
+        // build service before js app
         match (&a.kind, &b.kind) {
-            (ProjectKind::Rust(_), ProjectKind::Rust(_)) => Equal,
-            (ProjectKind::Javascript(_), ProjectKind::Javascript(_)) => Equal,
-            (ProjectKind::Rust(_), ProjectKind::Javascript(_)) => Less,
-            (ProjectKind::Javascript(_), ProjectKind::Rust(_)) => Greater,
+            (ProjectKind::Javascript(_), _) => std::cmp::Ordering::Greater,
+            (_, ProjectKind::Javascript(_)) => std::cmp::Ordering::Less,
+            _ => std::cmp::Ordering::Equal,
         }
     });
     Ok(projects)
@@ -94,22 +102,16 @@ impl fmt::Display for Status {
 }
 
 pub fn print_status(status: Status, what: impl fmt::Display, whence: Option<&Path>) {
+    let cwd = std::env::current_dir().unwrap();
     eprintln!(
         "{} {}{}",
         status,
         what.to_string(),
-        match whence {
-            Some(whence) => {
-                let cwd = std::env::current_dir().unwrap();
-                let rel_whence =
-                    pathdiff::diff_paths(whence, &cwd).unwrap_or_else(|| whence.to_path_buf());
-                if whence != cwd {
-                    format!(" ({})", rel_whence.display())
-                } else {
-                    "".to_string()
-                }
+        match whence.map(|w| w.strip_prefix(cwd)) {
+            Some(Ok(rel_whence)) if rel_whence != Path::new("") => {
+                format!(" ({})", rel_whence.display())
             }
-            None => "".to_string(),
+            _ => "".to_string(),
         }
     );
 }

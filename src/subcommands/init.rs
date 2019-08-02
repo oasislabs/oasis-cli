@@ -42,7 +42,7 @@ impl<'a> super::ExecSubcommand for InitOptions<'a> {
 /// Creates an Oasis project in a directory.
 pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
     let project_type_display = if opts.verbosity >= Verbosity::Normal {
-        opts.project_type[0..1].to_uppercase() + &opts.project_type[1..]
+        opts.project_type[0..1].to_uppercase() + &opts.project_type[1..] + " project"
     } else {
         String::new()
     };
@@ -50,11 +50,7 @@ pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
         "rust" => init_rust(&opts),
         _ => unreachable!(),
     }?;
-    print_status(
-        Status::Created,
-        project_type_display + " project",
-        Some(&opts.dest),
-    );
+    print_status(Status::Created, project_type_display, Some(&opts.dest));
     Ok(())
 }
 
