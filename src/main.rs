@@ -75,7 +75,7 @@ fn main() {
             (@subcommand profile =>
                 (about: "Manage profile settings")
                 (@arg NAME: +required "The name of the profile to modify")
-                (@arg KEY: +required "The name of the configuration key to set")
+                (@arg KEY: +required "The configuration key to set. Must be `mnemonic`, `private_key`, or `mnemonic`")
                 (@arg VALUE: +required "The configuration value to set")
             )
         )

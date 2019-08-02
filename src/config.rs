@@ -106,7 +106,9 @@ impl Config {
                         name.to_string()
                     );
                 }
-                _ => (),
+                _ => {
+                    println!("Invalid configuration key.")
+                },
             }
         }
     }
