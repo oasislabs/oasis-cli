@@ -72,6 +72,12 @@ fn main() {
                 (@subcommand status => (about: "Check telemetry status"))
                 (@subcommand upload => (@setting Hidden))
             )
+            (@subcommand profile =>
+                (about: "Manage profile settings")
+                (@arg profile: -n --profile "The profile of the profile to modify")
+                (@arg NAME: +required "The name of the configuration param to set")
+                (@arg VALUE: +required "The configuration value to set")
+            )
         )
     );
 
@@ -128,6 +134,14 @@ fn main() {
                     println!("{}", m.usage());
                     Ok(())
                 }
+            },
+            ("profile", Some(m)) => {
+                config.set_profile(
+                    m.value_of("profile").unwrap_or("local"),
+                    m.value_of("NAME").unwrap(),
+                    m.value_of("VALUE").unwrap(),
+                );
+                Ok(())
             },
             _ => {
                 println!("{}", m.usage());

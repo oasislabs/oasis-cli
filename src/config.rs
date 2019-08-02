@@ -25,6 +25,7 @@ impl Default for Config {
                     "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
                         .to_string(),
                 ),
+                private_key: None,
                 endpoint: "ws://localhost:8546".to_string(),
             },
         );
@@ -33,6 +34,7 @@ impl Default for Config {
             "default".to_string(),
             Profile {
                 mnemonic: None,
+                private_key: None,
                 endpoint: "https://gateway.devnet.oasiscloud.io".to_string(),
             },
         );
@@ -67,6 +69,27 @@ impl Config {
         let mut config_path = crate::oasis_dir!(config)?;
         config_path.push("config.toml");
         Ok(config_path)
+    }
+
+    pub fn set_profile(&mut self, profile_name: &str, name: &str, value: &str) {
+        if let Some(profile) = self.profiles.get_mut(&profile_name.to_string()) {
+            match name {
+                "mnemonic" => {
+                    (*profile).mnemonic = Some(
+                        value.to_string(),
+                    );
+                },
+                "private_key" => {
+                    (*profile).private_key = Some(
+                        value.to_string(),
+                    );
+                },
+                "endpoint" => {
+                    (*profile).endpoint = value.to_string();
+                },
+                _ => (),
+            }
+        }
     }
 }
 
@@ -106,6 +129,7 @@ impl Config {
 pub struct Profile {
     #[serde(default)]
     pub mnemonic: Option<String>,
+    pub private_key: Option<String>,
     pub endpoint: String,
 }
 
