@@ -53,6 +53,9 @@ fn main() {
         (@subcommand clean =>
             (about: "Remove build products")
         )
+        (@subcommand chain =>
+            (about: "Run a local Oasis blockchain")
+        )
         (@subcommand ifextract =>
             (about: "Extract interface definition(s) from a service.wasm")
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
@@ -89,6 +92,7 @@ fn main() {
     let result = match app_m.subcommand() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
+        ("chain", Some(_)) => run_chain(),
         ("test", Some(m)) => TestOptions::new(&m).exec(),
         ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
