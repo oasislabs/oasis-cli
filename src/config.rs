@@ -71,15 +71,15 @@ impl Config {
         Ok(config_path)
     }
 
-    pub fn set_profile(&mut self, profile_name: &str, name: &str, value: &str) {
-        if let Some(profile) = self.profiles.get_mut(&profile_name.to_string()) {
-            match name {
+    pub fn set_profile(&mut self, name: &str, key: &str, value: &str) {
+        if let Some(profile) = self.profiles.get_mut(&name.to_string()) {
+            match key {
                 "mnemonic" => {
                     (*profile).mnemonic = Some(value.to_string());
                     println!(
                         "Set mnemonic to `{}` in `{}` profile.",
                         value.to_string(),
-                        profile_name.to_string()
+                        name.to_string()
                     );
                     if let Some(_) = (*profile).private_key {
                         println!("Unset private key.");
@@ -91,7 +91,7 @@ impl Config {
                     println!(
                         "Set private key to `{}` in `{}` profile.",
                         value.to_string(),
-                        profile_name.to_string()
+                        name.to_string()
                     );
                     if let Some(_) = (*profile).mnemonic {
                         println!("Unset mnemonic.");
@@ -103,7 +103,7 @@ impl Config {
                     println!(
                         "Set endpoint to `{}` in `{}` profile.",
                         value.to_string(),
-                        profile_name.to_string()
+                        name.to_string()
                     );
                 }
                 _ => (),

@@ -74,8 +74,8 @@ fn main() {
             )
             (@subcommand profile =>
                 (about: "Manage profile settings")
-                (@arg profile: -p --profile "The profile of the profile to modify")
-                (@arg NAME: +required "The name of the configuration param to set")
+                (@arg NAME: +required "The name of the profile to modify")
+                (@arg KEY: +required "The name of the configuration key to set")
                 (@arg VALUE: +required "The configuration value to set")
             )
         )
@@ -137,8 +137,8 @@ fn main() {
             },
             ("profile", Some(m)) => {
                 config.set_profile(
-                    m.value_of("profile").unwrap_or("local"),
                     m.value_of("NAME").unwrap(),
+                    m.value_of("KEY").unwrap(),
                     m.value_of("VALUE").unwrap(),
                 );
                 Ok(())
