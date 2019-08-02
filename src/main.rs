@@ -74,7 +74,7 @@ fn main() {
             )
             (@subcommand profile =>
                 (about: "Manage profile settings")
-                (@arg profile: -n --profile "The profile of the profile to modify")
+                (@arg profile: -p --profile "The profile of the profile to modify")
                 (@arg NAME: +required "The name of the configuration param to set")
                 (@arg VALUE: +required "The configuration value to set")
             )
