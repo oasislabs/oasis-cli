@@ -101,7 +101,8 @@ pub fn print_status(status: Status, what: impl fmt::Display, whence: Option<&Pat
         match whence {
             Some(whence) => {
                 let cwd = std::env::current_dir().unwrap();
-                let rel_whence = pathdiff::diff_paths(whence, &cwd).unwrap();
+                let rel_whence =
+                    pathdiff::diff_paths(whence, &cwd).unwrap_or_else(|| whence.to_path_buf());
                 if whence != cwd {
                     format!(" ({})", rel_whence.display())
                 } else {

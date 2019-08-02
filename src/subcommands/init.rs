@@ -50,7 +50,11 @@ pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
         "rust" => init_rust(&opts),
         _ => unreachable!(),
     }?;
-    print_status(Status::Created, project_type_display, Some(&opts.dest));
+    print_status(
+        Status::Created,
+        project_type_display + " project",
+        Some(&opts.dest),
+    );
     Ok(())
 }
 
