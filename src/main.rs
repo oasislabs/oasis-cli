@@ -135,14 +135,11 @@ fn main() {
                     Ok(())
                 }
             },
-            ("profile", Some(m)) => {
-                config.set_profile(
-                    m.value_of("NAME").unwrap(),
-                    m.value_of("KEY").unwrap(),
-                    m.value_of("VALUE").unwrap(),
-                );
-                Ok(())
-            }
+            ("profile", Some(m)) => config.edit_profile(
+                m.value_of("NAME").unwrap(),
+                m.value_of("KEY").unwrap(),
+                m.value_of("VALUE").unwrap(),
+            ),
             _ => {
                 println!("{}", m.usage());
                 Ok(())
