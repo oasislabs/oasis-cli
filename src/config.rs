@@ -25,7 +25,7 @@ impl Default for Config {
                     "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
                         .to_string(),
                 ),
-                endpoint: "http://localhost:8546".to_string(),
+                endpoint: "ws://localhost:8546".to_string(),
             },
         );
 
