@@ -38,32 +38,22 @@ impl ProjectKind {
 pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
     let cwd = std::env::current_dir()?;
     let enoproj = || Error::DetectProject(format!("{}", cwd.display()));
-    let root = git2::Repository::discover(&cwd)
-        .map_err(|_| enoproj())?
-        .path()
-        .parent() // remove the .git
-        .unwrap()
-        .to_path_buf();
+    git2::Repository::discover(&cwd).map_err(|_| enoproj())?;
 
     let mut projects = std::collections::HashMap::new();
-    for ancestor in cwd.ancestors() {
-        for entry in ignore::Walk::new(ancestor) {
-            let entry = entry?;
-            if projects.contains_key(entry.path()) {
-                continue;
-            }
-            if let Some(project_kind) = ProjectKind::from_manifest(entry.path())? {
-                projects.insert(
-                    entry.path().to_path_buf(),
-                    Project {
-                        manifest_path: entry.path().to_path_buf(),
-                        kind: project_kind,
-                    },
-                );
-            }
+    for entry in ignore::Walk::new(cwd) {
+        let entry = entry?;
+        if projects.contains_key(entry.path()) {
+            continue;
         }
-        if ancestor == root {
-            break;
+        if let Some(project_kind) = ProjectKind::from_manifest(entry.path())? {
+            projects.insert(
+                entry.path().to_path_buf(),
+                Project {
+                    manifest_path: entry.path().to_path_buf(),
+                    kind: project_kind,
+                },
+            );
         }
     }
 
