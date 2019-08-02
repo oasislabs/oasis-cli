@@ -77,23 +77,30 @@ impl Config {
                 "mnemonic" => {
                     (*profile).mnemonic = Some(value.to_string());
                     println!(
-                        "Set mnemonic to `{}` in `{}` profile.\n",
+                        "Set mnemonic to `{}` in `{}` profile.",
                         value.to_string(),
                         profile_name.to_string()
                     );
+                    if let Some(_) = (*profile).private_key {
+                        println!("Unset private key.");
+                    }
                 }
                 "private_key" => {
                     (*profile).private_key = Some(value.to_string());
+                    (*profile).mnemonic = None;
                     println!(
-                        "Set private key to `{}` in `{}` profile.\n",
+                        "Set private key to `{}` in `{}` profile.",
                         value.to_string(),
                         profile_name.to_string()
                     );
+                    if let Some(_) = (*profile).mnemonic {
+                        println!("Unset mnemonic.");
+                    }
                 }
                 "endpoint" => {
                     (*profile).endpoint = value.to_string();
                     println!(
-                        "Set endpoint to `{}` in `{}` profile.\n",
+                        "Set endpoint to `{}` in `{}` profile.",
                         value.to_string(),
                         profile_name.to_string()
                     );
