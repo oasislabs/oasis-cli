@@ -4,12 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use colored::*;
-
 use crate::{
-    command::{run_cmd_with_env, Verbosity},
+    command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
-    utils::{detect_project_type, ProjectType},
+    error::Error,
+    utils::{detect_projects, print_status, ProjectKind, Status},
 };
 
 pub struct BuildOptions<'a> {
@@ -48,25 +47,38 @@ impl<'a> super::ExecSubcommand for BuildOptions<'a> {
 }
 
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    let mut manifest_path = PathBuf::new();
-    match detect_project_type(&mut manifest_path)? {
-        ProjectType::Rust(manifest) => build_rust(opts, &manifest_path, manifest),
-        ProjectType::Javascript(_) => Ok(()),
-        ProjectType::Unknown => match opts.services.as_slice() {
+    match detect_projects()?.as_slice() {
+        [] => match opts.services.as_slice() {
             [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
                 let out_file = Path::new(svc).with_extension("wasm");
                 prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
-                Ok(())
             }
-            _ => Err(failure::format_err!("could not detect Oasis project type.")),
+            _ => {
+                return Err(
+                    Error::DetectProject(format!("{}", std::env::current_dir()?.display())).into(),
+                )
+            }
         },
+        projects => {
+            for proj in projects {
+                match &proj.kind {
+                    ProjectKind::Rust(manifest) => {
+                        build_rust(&opts, &proj.manifest_path, manifest)?;
+                    }
+                    ProjectKind::Javascript(package_json) => {
+                        build_js(&opts, &proj.manifest_path, package_json)?;
+                    }
+                }
+            }
+        }
     }
+    Ok(())
 }
 
 fn build_rust(
-    opts: BuildOptions,
+    opts: &BuildOptions,
     manifest_path: &PathBuf,
-    manifest: Box<cargo_toml::Manifest>,
+    manifest: &cargo_toml::Manifest,
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
 
@@ -83,15 +95,10 @@ fn build_rust(
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    eprintln!(
-        "    {} {}{}",
-        "Building".cyan(),
+    print_status(
+        Status::Building,
         product_names.join(", "),
-        if opts.verbosity > Verbosity::Normal {
-            format!(" ({})", manifest_path.display())
-        } else {
-            "".to_string()
-        }
+        Some(manifest_path.parent().unwrap()),
     );
 
     emit!(cmd.build.start, {
@@ -123,7 +130,7 @@ fn build_rust(
         .map(|n| n + ".wasm")
         .collect::<Vec<_>>();
     if opts.verbosity >= Verbosity::Normal {
-        eprintln!("   {} {}", "Preparing".cyan(), wasm_names.join(","));
+        print_status(Status::Preparing, wasm_names.join(","), None);
     }
     for wasm_name in wasm_names {
         let wasm_file = wasm_dir.join(&wasm_name);
@@ -268,4 +275,32 @@ fn externalize_mem(module: &mut walrus::Module) {
 
     let mut mem = module.memories.iter_mut().nth(0).unwrap();
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
+}
+
+fn build_js(
+    opts: &BuildOptions,
+    manifest_path: &PathBuf,
+    package_json: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), failure::Error> {
+    print_status(
+        Status::Building,
+        package_json["name"].as_str().unwrap(),
+        Some(manifest_path.parent().unwrap()),
+    );
+
+    emit!(cmd.build.start, { "project_type": "js" });
+
+    run_cmd(
+        "npm",
+        &[
+            "run-script",
+            "--prefix",
+            manifest_path.parent().unwrap().to_str().unwrap(),
+            "build",
+        ],
+        opts.verbosity,
+    )?;
+
+    emit!(cmd.build.done);
+    Ok(())
 }

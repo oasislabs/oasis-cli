@@ -1,9 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use colored::*;
 use heck::{CamelCase, SnakeCase};
 
-use crate::{command::Verbosity, emit, error::Error};
+use crate::{
+    command::Verbosity,
+    emit,
+    error::Error,
+    utils::{print_status, Status},
+};
 
 const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
 const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
@@ -43,18 +47,14 @@ pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
         String::new()
     };
     match opts.project_type {
-        "rust" => init_rust(opts),
-        project_type => Err(Error::UnknownProjectType(project_type.to_string()).into()),
+        "rust" => init_rust(&opts),
+        _ => unreachable!(),
     }?;
-    eprintln!(
-        "     {} {} service",
-        "Created".green(),
-        project_type_display
-    );
+    print_status(Status::Created, project_type_display, Some(&opts.dest));
     Ok(())
 }
 
-fn init_rust(opts: InitOptions) -> Result<(), failure::Error> {
+fn init_rust(opts: &InitOptions) -> Result<(), failure::Error> {
     let dest = &opts.dest;
     if dest.exists() {
         return Err(Error::FileAlreadyExists(dest.display().to_string()).into());
