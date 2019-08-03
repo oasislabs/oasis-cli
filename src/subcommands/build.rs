@@ -286,22 +286,31 @@ fn build_js(
     manifest_path: &PathBuf,
     package_json: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
+    let package_dir = manifest_path.parent().unwrap();
+
     if opts.verbosity > Verbosity::Quiet {
         print_status(
             Status::Building,
             package_json["name"].as_str().unwrap(),
-            Some(manifest_path.parent().unwrap()),
+            Some(package_dir),
         );
     }
 
     emit!(cmd.build.start, { "project_type": "js" });
+
+    if !package_dir.join("node_modules").is_dir() {
+        let npm_args = &["install", "--prefix", package_dir.to_str().unwrap()];
+        if run_cmd("npm", npm_args, opts.verbosity).is_err() {
+            emit!(cmd.build.error, { "cause": "npm install" });
+        }
+    }
 
     run_cmd(
         "npm",
         &[
             "run-script",
             "--prefix",
-            manifest_path.parent().unwrap().to_str().unwrap(),
+            package_dir.to_str().unwrap(),
             "build",
         ],
         opts.verbosity,
