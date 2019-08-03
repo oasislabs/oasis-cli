@@ -65,6 +65,9 @@ fn main() {
             (about: "Deploy a service to the Oasis blockchain")
         )
         (@subcommand config =>
+            (@arg NAME: +required "The name of the profile to modify")
+            (@arg KEY: +required "The configuration key to set. Must be `mnemonic`, `private_key`, or `mnemonic`")
+            (@arg VALUE: +required "The configuration value to set")
             (@subcommand telemetry =>
                 (about: "Manage telemetry settings")
                 (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
@@ -73,15 +76,9 @@ fn main() {
                 (@subcommand upload => (@setting Hidden))
             )
         )
-        (@subcommand profile =>
-            (@subcommand set =>
-                (about: "Manage profile settings")
-                (@arg NAME: +required "The name of the profile to modify")
-                (@arg KEY: +required "The configuration key to set. Must be `mnemonic`, `private_key`, or `mnemonic`")
-                (@arg VALUE: +required "The configuration value to set")
-            )
-        )
-    );
+    )
+    .setting(clap::AppSettings::ArgsNegateSubcommands)
+    .setting(clap::AppSettings::SubcommandsNegateReqs);
 
     let mut config = Config::load().unwrap_or_else(|err| {
         warn!("could not load config file: {}", err);
@@ -138,21 +135,11 @@ fn main() {
                 }
             },
             _ => {
-                println!("{}", m.usage());
-                Ok(())
-            }
-        },
-        ("profile", Some(m)) => match m.subcommand() {
-            ("set", _) => {
-                config.set_profile(
+                config.edit_profile(
                     m.value_of("NAME").unwrap(),
                     m.value_of("KEY").unwrap(),
                     m.value_of("VALUE").unwrap(),
                 );
-                Ok(())
-            }
-            _ => {
-                println!("{}", m.usage());
                 Ok(())
             }
         },

@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{dialogue, error::Error};
+use crate::{dialogue, emit, error::Error};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -19,7 +19,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut profiles = HashMap::new();
         profiles.insert(
-            "local".to_string(),
+            "profile.local".to_string(),
             Profile {
                 mnemonic: Some(
                     "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
@@ -31,7 +31,7 @@ impl Default for Config {
         );
 
         profiles.insert(
-            "default".to_string(),
+            "profile.default".to_string(),
             Profile {
                 mnemonic: None,
                 private_key: None,
@@ -71,46 +71,32 @@ impl Config {
         Ok(config_path)
     }
 
-    pub fn set_profile(&mut self, name: &str, key: &str, value: &str) {
-        if let Some(profile) = self.profiles.get_mut(&name.to_string()) {
-            match key {
-                "mnemonic" => {
-                    (*profile).mnemonic = Some(value.to_string());
-                    println!(
-                        "Set mnemonic to `{}` in `{}` profile.",
-                        value.to_string(),
-                        name.to_string()
-                    );
-                    if let Some(_) = (*profile).private_key {
-                        println!("Unset private key.");
-                        (*profile).private_key = None;
-                    }
-                }
-                "private_key" => {
-                    (*profile).private_key = Some(value.to_string());
-                    println!(
-                        "Set private key to `{}` in `{}` profile.",
-                        value.to_string(),
-                        name.to_string()
-                    );
-                    if let Some(_) = (*profile).mnemonic {
-                        println!("Unset mnemonic.");
-                        (*profile).mnemonic = None;
-                    }
-                }
-                "endpoint" => {
-                    (*profile).endpoint = value.to_string();
-                    println!(
-                        "Set endpoint to `{}` in `{}` profile.",
-                        value.to_string(),
-                        name.to_string()
-                    );
-                }
-                _ => {
-                    println!("Invalid configuration key.")
-                },
+    pub fn edit_profile(
+        &mut self,
+        profile_name: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), failure::Error> {
+        let mut profile = match self.profiles.get_mut(profile_name) {
+            Some(profile) => profile,
+            None => return Err(failure::format_err!("no profile named `{}`", profile_name)),
+        };
+        emit!(cmd.config, { "key": key });
+        match key {
+            "mnemonic" => {
+                profile.mnemonic = Some(value.to_string());
+                profile.private_key = None;
             }
+            "private_key" => {
+                profile.private_key = Some(value.to_string());
+                profile.mnemonic = None;
+            }
+            "endpoint" => {
+                profile.endpoint = value.to_string();
+            }
+            _ => return Err(failure::format_err!("unknown profile parameter: `{}`", key)),
         }
+        Ok(())
     }
 }
 
@@ -148,8 +134,9 @@ impl Config {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mnemonic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub private_key: Option<String>,
     pub endpoint: String,
 }
