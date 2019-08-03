@@ -113,8 +113,9 @@ fn build_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs).is_err() {
+    if let Err(e) = run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs) {
         emit!(cmd.build.error);
+        return Err(e);
     };
 
     let target_dir = get_target_dir(manifest_path);
@@ -300,8 +301,9 @@ fn build_js(
 
     if !package_dir.join("node_modules").is_dir() {
         let npm_args = &["install", "--prefix", package_dir.to_str().unwrap()];
-        if run_cmd("npm", npm_args, opts.verbosity).is_err() {
+        if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
             emit!(cmd.build.error, { "cause": "npm install" });
+            return Err(e);
         }
     }
 
