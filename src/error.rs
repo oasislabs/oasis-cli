@@ -15,8 +15,6 @@ pub enum Error {
     ExecNotFound(String),
     #[fail(display = "could not read file `{}`: `{}`.", _0, _1)]
     ReadFile(String, String),
-    #[fail(display = "failed to join thread")]
-    JoinThread,
     #[fail(display = "no project in `{}` or any parent directory", _0)]
     DetectProject(String),
     #[fail(display = "destination path `{}` already exists.", _0)]

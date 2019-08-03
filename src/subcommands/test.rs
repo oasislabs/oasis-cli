@@ -18,7 +18,9 @@ impl<'a> TestOptions<'a> {
         Ok(Self {
             debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
-            verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            verbosity: Verbosity::from(
+                m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
+            ),
             tester_args: m.values_of("tester_args").unwrap_or_default().collect(),
         })
     }
@@ -66,11 +68,13 @@ fn test_rust(
         OsString::from("oasis-build"),
     );
 
-    print_status(
-        Status::Testing,
-        product_names.join(", "),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Testing,
+            product_names.join(", "),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.test.start, {
         "project_type": "rust",
@@ -92,11 +96,13 @@ fn test_js(
     manifest_path: &Path,
     package_json: serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    print_status(
-        Status::Testing,
-        package_json["name"].as_str().unwrap(),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Testing,
+            package_json["name"].as_str().unwrap(),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.test.start, {
         "project_type": "js",
@@ -106,6 +112,14 @@ fn test_js(
     let mut npm_args = vec!["test"];
     npm_args.push("--prefix");
     npm_args.push(manifest_path.as_os_str().to_str().unwrap());
+
+    let mut tester_args = opts.tester_args.clone();
+    if opts.verbosity < Verbosity::Normal {
+        tester_args.push("--silent");
+    } else if opts.verbosity >= Verbosity::Verbose {
+        tester_args.push("--verbose");
+    }
+
     if !opts.tester_args.is_empty() {
         npm_args.push("--");
         npm_args.extend(opts.tester_args.iter());
