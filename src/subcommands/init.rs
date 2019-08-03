@@ -28,7 +28,9 @@ impl<'a> InitOptions<'a> {
         Ok(Self {
             project_type,
             dest: PathBuf::from(m.value_of("NAME").unwrap_or(".")),
-            verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            verbosity: Verbosity::from(
+                m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
+            ),
         })
     }
 }
@@ -41,16 +43,15 @@ impl<'a> super::ExecSubcommand for InitOptions<'a> {
 
 /// Creates an Oasis project in a directory.
 pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
-    let project_type_display = if opts.verbosity >= Verbosity::Normal {
-        opts.project_type[0..1].to_uppercase() + &opts.project_type[1..] + " project"
-    } else {
-        String::new()
-    };
+    let project_type_display =
+        opts.project_type[0..1].to_uppercase() + &opts.project_type[1..] + " project";
     match opts.project_type {
         "rust" => init_rust(&opts),
         _ => unreachable!(),
     }?;
-    print_status(Status::Created, project_type_display, Some(&opts.dest));
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(Status::Created, project_type_display, Some(&opts.dest));
+    }
     Ok(())
 }
 

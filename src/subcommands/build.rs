@@ -34,7 +34,9 @@ impl<'a> BuildOptions<'a> {
             debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             wasi: m.is_present("wasi"),
-            verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            verbosity: Verbosity::from(
+                m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
+            ),
             builder_args: m.values_of("builder_args").unwrap_or_default().collect(),
         })
     }
@@ -95,11 +97,13 @@ fn build_rust(
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    print_status(
-        Status::Building,
-        product_names.join(", "),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Building,
+            product_names.join(", "),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.build.start, {
         "project_type": "rust",
@@ -129,7 +133,7 @@ fn build_rust(
         .into_iter()
         .map(|n| n + ".wasm")
         .collect::<Vec<_>>();
-    if opts.verbosity >= Verbosity::Normal {
+    if opts.verbosity > Verbosity::Quiet {
         print_status(Status::Preparing, wasm_names.join(","), None);
     }
     for wasm_name in wasm_names {
@@ -282,11 +286,13 @@ fn build_js(
     manifest_path: &PathBuf,
     package_json: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    print_status(
-        Status::Building,
-        package_json["name"].as_str().unwrap(),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Building,
+            package_json["name"].as_str().unwrap(),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.build.start, { "project_type": "js" });
 
