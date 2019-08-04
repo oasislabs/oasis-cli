@@ -83,13 +83,6 @@ fn main() {
         )
     );
 
-    // Store `help` for later since `get_matches` takes ownership.
-    let mut help = std::io::Cursor::new(Vec::new());
-    app.write_long_help(&mut help).unwrap();
-
-    // Get app matches before doing anything else so that `--help` has priority.
-    let app_m = app.get_matches();
-
     let mut config = Config::load().unwrap_or_else(|err| {
         warn!("could not load config file: {}", err);
         Config::new()
@@ -99,6 +92,11 @@ fn main() {
         warn!("could not enable telemetry: {}", err);
     };
 
+    // Store `help` for later since `get_matches` takes ownership.
+    let mut help = std::io::Cursor::new(Vec::new());
+    app.write_long_help(&mut help).unwrap();
+
+    let app_m = app.get_matches();
     let result = match app_m.subcommand() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
