@@ -19,7 +19,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut profiles = HashMap::new();
         profiles.insert(
-            "profile.local".to_string(),
+            "local".to_string(),
             Profile {
                 mnemonic: Some(
                     "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
@@ -31,7 +31,7 @@ impl Default for Config {
         );
 
         profiles.insert(
-            "profile.default".to_string(),
+            "default".to_string(),
             Profile {
                 mnemonic: None,
                 private_key: None,
