@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{dialogue, error::Error};
+use crate::{dialogue, emit, error::Error};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -25,6 +25,7 @@ impl Default for Config {
                     "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
                         .to_string(),
                 ),
+                private_key: None,
                 endpoint: "ws://localhost:8546".to_string(),
             },
         );
@@ -33,6 +34,7 @@ impl Default for Config {
             "default".to_string(),
             Profile {
                 mnemonic: None,
+                private_key: None,
                 endpoint: "https://gateway.devnet.oasiscloud.io".to_string(),
             },
         );
@@ -67,6 +69,34 @@ impl Config {
         let mut config_path = crate::oasis_dir!(config)?;
         config_path.push("config.toml");
         Ok(config_path)
+    }
+
+    pub fn edit_profile(
+        &mut self,
+        profile_name: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), failure::Error> {
+        let mut profile = match self.profiles.get_mut(profile_name) {
+            Some(profile) => profile,
+            None => return Err(failure::format_err!("No profile named `{}`", profile_name)),
+        };
+        emit!(cmd.config, { "key": key });
+        match key {
+            "mnemonic" => {
+                profile.mnemonic = Some(value.to_string());
+                profile.private_key = None;
+            }
+            "private_key" => {
+                profile.private_key = Some(value.to_string());
+                profile.mnemonic = None;
+            }
+            "endpoint" => {
+                profile.endpoint = value.to_string();
+            }
+            _ => return Err(failure::format_err!("Unknown profile parameter: `{}`", key)),
+        }
+        Ok(())
     }
 }
 
@@ -104,8 +134,10 @@ impl Config {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Profile {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mnemonic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_key: Option<String>,
     pub endpoint: String,
 }
 
