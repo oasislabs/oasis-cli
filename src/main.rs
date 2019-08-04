@@ -135,11 +135,14 @@ fn main() {
                 }
             },
             _ => {
-                config.edit_profile(
+                match config.edit_profile(
                     m.value_of("NAME").unwrap(),
                     m.value_of("KEY").unwrap(),
                     m.value_of("VALUE").unwrap(),
-                );
+                ) {
+                    Err(e) => println!("{}", e.to_string()),
+                    _ => {}
+                }
                 Ok(())
             }
         },

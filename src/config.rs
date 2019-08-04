@@ -79,7 +79,7 @@ impl Config {
     ) -> Result<(), failure::Error> {
         let mut profile = match self.profiles.get_mut(profile_name) {
             Some(profile) => profile,
-            None => return Err(failure::format_err!("no profile named `{}`", profile_name)),
+            None => return Err(failure::format_err!("No profile named `{}`", profile_name)),
         };
         emit!(cmd.config, { "key": key });
         match key {
@@ -94,7 +94,7 @@ impl Config {
             "endpoint" => {
                 profile.endpoint = value.to_string();
             }
-            _ => return Err(failure::format_err!("unknown profile parameter: `{}`", key)),
+            _ => return Err(failure::format_err!("Unknown profile parameter: `{}`", key)),
         }
         Ok(())
     }
