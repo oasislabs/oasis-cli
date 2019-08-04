@@ -36,12 +36,10 @@ impl ProjectKind {
 pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
     let cwd = std::env::current_dir()?;
     let enoproj = || Error::DetectProject(format!("{}", cwd.display()));
-    let root = git2::Repository::discover(&cwd)
-        .map_err(|_| enoproj())?
-        .path()
-        .parent() // remove the .git
-        .unwrap()
-        .to_path_buf();
+    let root = cwd
+        .ancestors()
+        .find(|a| a.join(".git").is_dir())
+        .ok_or_else(enoproj)?;
 
     let mut projects = std::collections::HashMap::new();
     for ancestor in cwd.ancestors() {

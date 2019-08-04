@@ -23,6 +23,7 @@ fn main() -> Result<(), failure::Error> {
             cmd.output()
         }}
     }
+
     if !template_repo_path.is_dir() {
         git!("clone", TEMPLATE_REPO_URL, &template_repo_path)?;
     }
