@@ -1,7 +1,7 @@
 use std::{ffi::OsString, path::Path};
 
 use crate::{
-    command::{run_cmd_with_env, Verbosity},
+    command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
     utils::{detect_projects, print_status, ProjectKind, Status},
 };
@@ -18,7 +18,9 @@ impl<'a> TestOptions<'a> {
         Ok(Self {
             debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
-            verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            verbosity: Verbosity::from(
+                m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
+            ),
             tester_args: m.values_of("tester_args").unwrap_or_default().collect(),
         })
     }
@@ -34,9 +36,7 @@ pub fn test(opts: TestOptions) -> Result<(), failure::Error> {
     for proj in detect_projects()? {
         match proj.kind {
             ProjectKind::Rust(manifest) => test_rust(&opts, &proj.manifest_path, manifest)?,
-            ProjectKind::Javascript(manifest) => {
-                test_js(&opts, &proj.manifest_path.parent().unwrap(), manifest)?
-            }
+            ProjectKind::Javascript(manifest) => test_js(&opts, &proj.manifest_path, manifest)?,
         }
     }
     Ok(())
@@ -66,11 +66,13 @@ fn test_rust(
         OsString::from("oasis-build"),
     );
 
-    print_status(
-        Status::Testing,
-        product_names.join(", "),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Testing,
+            product_names.join(", "),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.test.start, {
         "project_type": "rust",
@@ -79,41 +81,9 @@ fn test_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs).is_err() {
+    if let Err(e) = run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs) {
         emit!(cmd.test.error);
-    };
-
-    emit!(cmd.test.done);
-    Ok(())
-}
-
-fn test_js(
-    opts: &TestOptions,
-    manifest_path: &Path,
-    package_json: serde_json::Map<String, serde_json::Value>,
-) -> Result<(), failure::Error> {
-    print_status(
-        Status::Testing,
-        package_json["name"].as_str().unwrap(),
-        Some(manifest_path.parent().unwrap()),
-    );
-
-    emit!(cmd.test.start, {
-        "project_type": "js",
-        "tester_args": opts.tester_args,
-    });
-
-    let mut npm_args = vec!["test"];
-    npm_args.push("--prefix");
-    npm_args.push(manifest_path.as_os_str().to_str().unwrap());
-    if !opts.tester_args.is_empty() {
-        npm_args.push("--");
-        npm_args.extend(opts.tester_args.iter());
-    }
-    let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
-    npm_envs.insert(OsString::from("OASIS_PROFILE"), OsString::from("local"));
-    if run_cmd_with_env("npm", npm_args, opts.verbosity, npm_envs).is_err() {
-        emit!(cmd.test.error);
+        return Err(e);
     };
 
     emit!(cmd.test.done);
@@ -166,4 +136,57 @@ fn get_cargo_args<'a>(
     }
 
     Ok(cargo_args)
+}
+
+fn test_js(
+    opts: &TestOptions,
+    manifest_path: &Path,
+    package_json: serde_json::Map<String, serde_json::Value>,
+) -> Result<(), failure::Error> {
+    let package_dir = manifest_path.parent().unwrap();
+
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Testing,
+            package_json["name"].as_str().unwrap(),
+            Some(package_dir),
+        );
+    }
+
+    emit!(cmd.test.start, {
+        "project_type": "js",
+        "tester_args": opts.tester_args,
+    });
+
+    if !package_dir.join("node_modules").is_dir() {
+        let npm_args = &[
+            "install",
+            "--prefix",
+            package_dir.to_str().unwrap(),
+            "--quiet",
+            "--no-progress",
+        ];
+        if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
+            emit!(cmd.test.error, { "cause": "npm install" });
+            return Err(e);
+        }
+    }
+
+    let mut npm_args = vec!["test", "--prefix", package_dir.to_str().unwrap(), "--"];
+    if opts.verbosity < Verbosity::Normal {
+        npm_args.push("--silent");
+    } else if opts.verbosity >= Verbosity::Verbose {
+        npm_args.push("--verbose");
+    }
+    npm_args.extend(opts.tester_args.iter());
+
+    let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+    npm_envs.insert(OsString::from("OASIS_PROFILE"), OsString::from("local"));
+    if let Err(e) = run_cmd_with_env("npm", npm_args, opts.verbosity, npm_envs) {
+        emit!(cmd.test.error);
+        return Err(e);
+    }
+
+    emit!(cmd.test.done);
+    Ok(())
 }

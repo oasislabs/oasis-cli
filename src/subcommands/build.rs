@@ -34,7 +34,9 @@ impl<'a> BuildOptions<'a> {
             debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
             wasi: m.is_present("wasi"),
-            verbosity: Verbosity::from(m.occurrences_of("verbose")),
+            verbosity: Verbosity::from(
+                m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
+            ),
             builder_args: m.values_of("builder_args").unwrap_or_default().collect(),
         })
     }
@@ -95,11 +97,13 @@ fn build_rust(
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    print_status(
-        Status::Building,
-        product_names.join(", "),
-        Some(manifest_path.parent().unwrap()),
-    );
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Building,
+            product_names.join(", "),
+            Some(manifest_path.parent().unwrap()),
+        );
+    }
 
     emit!(cmd.build.start, {
         "project_type": "rust",
@@ -109,8 +113,9 @@ fn build_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs).is_err() {
+    if let Err(e) = run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs) {
         emit!(cmd.build.error);
+        return Err(e);
     };
 
     let target_dir = get_target_dir(manifest_path);
@@ -129,7 +134,7 @@ fn build_rust(
         .into_iter()
         .map(|n| n + ".wasm")
         .collect::<Vec<_>>();
-    if opts.verbosity >= Verbosity::Normal {
+    if opts.verbosity > Verbosity::Quiet {
         print_status(Status::Preparing, wasm_names.join(","), None);
     }
     for wasm_name in wasm_names {
@@ -282,20 +287,32 @@ fn build_js(
     manifest_path: &PathBuf,
     package_json: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), failure::Error> {
-    print_status(
-        Status::Building,
-        package_json["name"].as_str().unwrap(),
-        Some(manifest_path.parent().unwrap()),
-    );
+    let package_dir = manifest_path.parent().unwrap();
+
+    if opts.verbosity > Verbosity::Quiet {
+        print_status(
+            Status::Building,
+            package_json["name"].as_str().unwrap(),
+            Some(package_dir),
+        );
+    }
 
     emit!(cmd.build.start, { "project_type": "js" });
+
+    if !package_dir.join("node_modules").is_dir() {
+        let npm_args = &["install", "--prefix", package_dir.to_str().unwrap()];
+        if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
+            emit!(cmd.build.error, { "cause": "npm install" });
+            return Err(e);
+        }
+    }
 
     run_cmd(
         "npm",
         &[
             "run-script",
             "--prefix",
-            manifest_path.parent().unwrap().to_str().unwrap(),
+            package_dir.to_str().unwrap(),
             "build",
         ],
         opts.verbosity,

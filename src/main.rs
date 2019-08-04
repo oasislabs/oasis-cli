@@ -29,6 +29,7 @@ fn main() {
         (@setting InferSubcommands)
         (@subcommand init =>
             (about: "Create a new Oasis package")
+            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
             (@arg NAME: +required "Package name")
             (@group type =>
                 (@arg rust: --rust "Create a new Rust service")
@@ -38,6 +39,7 @@ fn main() {
             (about: "Build services for the Oasis platform")
             (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
             (@arg stack_size: +takes_value --stack-size "Set the amount of linear memory allocated to program stack (in bytes)")
             (@arg wasi: --wasi "Build a vanilla WASI service")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
@@ -47,6 +49,7 @@ fn main() {
             (about: "Run tests against a simulated Oasis runtime")
             (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")
         )
