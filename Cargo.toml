@@ -43,9 +43,7 @@ webbrowser = "0.5"
 
 [build-dependencies]
 failure = "0.1"
-reqwest = "0.9"
 semver = "0.9"
-serde = { version = "1.0", features = ["derive"] }
 
 [profile.release]
 lto = true
