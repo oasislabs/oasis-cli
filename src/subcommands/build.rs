@@ -300,7 +300,12 @@ fn build_js(
     emit!(cmd.build.start, { "project_type": "js" });
 
     if !package_dir.join("node_modules").is_dir() {
-        let npm_args = &["install", "--prefix", package_dir.to_str().unwrap()];
+        let npm_args = &[
+            "install",
+            "--prefix",
+            package_dir.to_str().unwrap(),
+            "--quiet",
+        ];
         if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
             emit!(cmd.build.error, { "cause": "npm install" });
             return Err(e);

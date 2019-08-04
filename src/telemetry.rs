@@ -30,7 +30,7 @@ struct Event {
 }
 
 pub fn init(config: &crate::config::Config) -> Result<(), failure::Error> {
-    let tcfg = &config.telemetry;
+    let tcfg = &config.telemetry();
     if !tcfg.enabled {
         return Ok(());
     }
