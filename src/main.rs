@@ -135,13 +135,12 @@ fn main() {
                 }
             },
             _ => {
-                match config.edit_profile(
+                if let Err(e) = config.edit_profile(
                     m.value_of("NAME").unwrap(),
                     m.value_of("KEY").unwrap(),
                     m.value_of("VALUE").unwrap(),
                 ) {
-                    Err(e) => println!("{}", e.to_string()),
-                    _ => {}
+                    println!("{}", e.to_string());
                 }
                 Ok(())
             }
