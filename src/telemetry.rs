@@ -39,7 +39,7 @@ pub fn init(config: &crate::config::Config) -> Result<(), failure::Error> {
 
     if let Ok(metadata) = std::fs::metadata(&metrics_path) {
         let args = std::env::args().collect::<Vec<_>>();
-        let upload_args = &["config", "telemetry", "upload"];
+        let upload_args = &["upload_metrics"];
         let is_upload = &args[1..] == upload_args;
         if metadata.len() >= UPLOAD_THRESHOLD_FILESIZE && !is_upload {
             std::process::Command::new(&args[0])

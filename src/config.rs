@@ -11,11 +11,11 @@ pub struct Config {
 }
 
 static DEFAULT_CONFIG_TOML: &str = r#"
-[profiles.default]
+[profile.default]
 private_key = ""
 endpoint = "https://gateway.devnet.oasiscloud.io"
 
-[profiles.local]
+[profile.local]
 mnemonic = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
 endpoint = "ws://localhost:8546"
 
@@ -78,36 +78,87 @@ impl Config {
         Ok(config_path)
     }
 
-    pub fn edit_profile(
-        &mut self,
-        profile_name: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), failure::Error> {
-        match key {
-            "mnemonic" | "private_key" | "endpoint" => (),
-            _ => return Err(failure::format_err!("Unknown profile parameter: `{}`", key)),
+    pub fn get(&self, key: &str) -> Option<String> {
+        use toml_edit::Item;
+
+        emit!(cmd.config.get, { "key": key });
+
+        let mut itm = &self.doc.root;
+        for k in key.split('.') {
+            itm = match itm.as_table().and_then(|t| t.get(k)) {
+                Some(Item::None) | None => return None,
+                Some(itm) => itm,
+            }
         }
 
-        let profile = match self
-            .doc
-            .as_table_mut()
-            .entry("profiles")
-            .as_table_mut()
-            .map(|ps| ps.entry(profile_name))
-        {
-            Some(toml_edit::Item::Table(profile)) => profile,
-            _ => return Err(failure::format_err!("No profile named `{}`", profile_name)),
-        };
-        if key == "mnemonic" {
-            profile.remove("private_key");
-        } else if key == "private_key" {
-            profile.remove("mnemonic");
+        Some(match itm {
+            Item::Value(v) => v.to_string(),
+            Item::Table(t) => t.to_string(),
+            Item::ArrayOfTables(ts) => ts
+                .iter()
+                .map(toml_edit::Table::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Item::None => unreachable!(),
+        })
+    }
+
+    pub fn edit(&mut self, key: &str, value: &str) -> Result<(), failure::Error> {
+        emit!(cmd.config.edit, { "key": key });
+
+        match key.split('.').collect::<Vec<&str>>().as_slice() {
+            ["profile", profile_name, key] => {
+                match *key {
+                    "mnemonic" | "private_key" | "endpoint" => (),
+                    _ => {
+                        return Err(failure::format_err!(
+                            "unknown configuration option: `{}`. Valid options are `mnemonic`, `private_key`, and `endpoint`.",
+                            key
+                        ))
+                    }
+                }
+
+                let profile = match self
+                    .doc
+                    .as_table_mut()
+                    .entry("profile")
+                    .as_table_mut()
+                    .map(|ps| ps.entry(profile_name))
+                {
+                    Some(toml_edit::Item::Table(profile)) => profile,
+                    _ => return Err(failure::format_err!("No profile named `{}`", profile_name)),
+                };
+                if *key == "mnemonic" {
+                    profile.remove("private_key");
+                } else if *key == "private_key" {
+                    profile.remove("mnemonic");
+                }
+
+                *profile.entry(key) = toml_edit::value(value);
+            }
+            ["telemetry", key] => match *key {
+                "enabled" => self.enable_telemetry(value.parse()?),
+                "user_id" => {
+                    return Err(failure::format_err!(
+                        "we'd prefer if you didn't modify `user_id`. \
+                         If you feel strongly about it,\nyou can edit \
+                         the config file directly."
+                    ))
+                }
+                _ => {
+                    return Err(failure::format_err!(
+                        "unknown configuration option: `{}`. Valid options are `enabled`.",
+                        key
+                    ))
+                }
+            },
+            _ => {
+                return Err(failure::format_err!(
+                    "unknown configuration option: `{}`",
+                    key
+                ))
+            }
         }
-
-        *profile.entry(key) = toml_edit::value(value);
-
-        emit!(cmd.config, { "key": key });
 
         Ok(())
     }

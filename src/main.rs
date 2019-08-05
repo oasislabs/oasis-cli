@@ -54,12 +54,8 @@ fn main() {
             (@arg SERVICE: +multiple "Specify which service(s) to build")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")
         )
-        (@subcommand clean =>
-            (about: "Remove build products")
-        )
-        (@subcommand chain =>
-            (about: "Run a local Oasis blockchain")
-        )
+        (@subcommand clean => (about: "Remove build products"))
+        (@subcommand chain => (about: "Run a local Oasis blockchain"))
         (@subcommand ifextract =>
             (about: "Extract interface definition(s) from a service.wasm")
             (@arg out_dir: -o --out +takes_value "Where to write the interface.json(s). Defaults to current directory. Pass `-` to write to stdout.")
@@ -68,19 +64,10 @@ fn main() {
         (@subcommand deploy =>
             (about: "Deploy a service to the Oasis blockchain")
         )
+        (@subcommand uplaod_metrics => (@setting Hidden))
         (@subcommand config =>
-            (@setting ArgsNegateSubcommands)
-            (@setting SubcommandsNegateReqs)
-            (@subcommand telemetry =>
-                (about: "Manage telemetry settings")
-                (@subcommand enable => (about: "Enable collection of anonymous usage statistics"))
-                (@subcommand disable => (about: "Disable collection of anonymous usage statistics"))
-                (@subcommand status => (about: "Check telemetry status"))
-                (@subcommand upload => (@setting Hidden))
-            )
-            (@arg NAME: +required "The name of the profile to modify.")
-            (@arg KEY: +required "The configuration key to set. Must be `mnemonic`, `private_key`, or `endpoint`")
-            (@arg VALUE: +required "The configuration value to set")
+            (@arg KEY: +required "The configuration key to set")
+            (@arg VALUE: "The new configuration value")
         )
     );
 
@@ -111,46 +98,19 @@ fn main() {
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         ("deploy", Some(_)) => deploy(),
-        ("config", Some(m)) => match m.subcommand() {
-            ("telemetry", Some(m)) => match m.subcommand() {
-                ("enable", _) => {
-                    config.enable_telemetry(true);
-                    println!("Telemetry is enabled.");
+        ("config", Some(m)) => {
+            let key = m.value_of("KEY").unwrap();
+            match m.value_of("VALUE") {
+                Some(v) => config.edit(key, v),
+                None => {
+                    if let Some(v) = config.get(key) {
+                        println!("{}", v.trim())
+                    }
                     Ok(())
                 }
-                ("disable", _) => {
-                    config.enable_telemetry(false);
-                    println!("Telemetry is disabled.");
-                    Ok(())
-                }
-                ("status", _) => telemetry::metrics_path().map(|p| {
-                    println!(
-                        "Telemetry is {}.",
-                        if config.telemetry().enabled {
-                            "enabled"
-                        } else {
-                            "disabled"
-                        }
-                    );
-                    println!("Usage data is being written to `{}`", p.display());
-                }),
-                ("upload", _) => telemetry::upload(),
-                _ => {
-                    println!("{}", m.usage());
-                    Ok(())
-                }
-            },
-            _ => {
-                if let Err(e) = config.edit_profile(
-                    m.value_of("NAME").unwrap(),
-                    m.value_of("KEY").unwrap(),
-                    m.value_of("VALUE").unwrap(),
-                ) {
-                    println!("{}", e.to_string());
-                }
-                Ok(())
             }
-        },
+        }
+        ("upload_metrics", _) => telemetry::upload(),
         _ => {
             println!("{}", String::from_utf8(help.into_inner()).unwrap());
             return;

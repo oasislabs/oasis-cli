@@ -1,16 +1,28 @@
 """Utilities for testing the Oasis CLI."""
-import collections
 import os
 import os.path as osp
 import subprocess
+from subprocess import DEVNULL
 import tempfile
+import toml
 
 import pytest
 
 TARGET_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..', 'target', 'debug'))
 
-OasisEnv = collections.namedtuple('OasisEnv',
-                                  'home_dir config_dir data_dir config_file metrics_file')
+class OasisEnv:
+    """Provides information about the virtual user environment in which
+       the CLI is currently running."""
+    def __init__(self, home_dir, user_config_dir, user_data_dir):
+        self.home_dir = home_dir
+        self.config_dir = osp.join(user_config_dir, 'oasis')
+        self.data_dir = osp.join(user_data_dir, 'oasis')
+        self.config_file = osp.join(self.config_dir, 'config.toml')
+        self.metrics_file = osp.join(self.data_dir, 'metrics.jsonl')
+
+    def load_config(self):
+        with open(self.config_file) as f_config:
+            return toml.load(f_config)
 
 
 @pytest.fixture(params=[None, 'custom_prefix'])
@@ -35,15 +47,7 @@ def oenv(request):
             config_dir = osp.join(tempdir, '.config')
             data_dir = osp.join(tempdir, '.local', 'share')
 
-        oasis_config_dir = osp.join(config_dir, 'oasis')
-        oasis_data_dir = osp.join(data_dir, 'oasis')
-
-        yield OasisEnv(
-            home_dir=tempdir,
-            config_dir=oasis_config_dir,
-            data_dir=oasis_data_dir,
-            config_file=osp.join(oasis_config_dir, 'config.toml'),
-            metrics_file=osp.join(oasis_data_dir, 'metrics.jsonl'))
+        yield OasisEnv(tempdir, config_dir, data_dir)
 
         os.chdir(orig_cwd)  # must chdir before tempdir is deleted
     os.environ = orig_envs
@@ -53,14 +57,14 @@ def oenv(request):
 def default_config():
     assert os.environ['HOME'].startswith(
         '/tmp'), 'default_config fixture should come after oenv fixture'
-    run('oasis')
+    run('oasis', stdout=DEVNULL, stderr=DEVNULL)
 
 
 @pytest.fixture
 def telemetry_config():
     assert os.environ['HOME'].startswith(
         '/tmp'), 'default_config fixture should come after oenv fixture'
-    run('oasis', input='y')
+    run('oasis', input='y', stdout=DEVNULL, stderr=DEVNULL)
 
 
 def run(cmd, check=True, envs=None, **run_args):
