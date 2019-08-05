@@ -8,7 +8,7 @@ executors:
       LD_LIBRARY_PATH: /root/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib
     docker:
       - image: oasislabs/rust:latest
-    resource_class: large
+    resource_class: xlarge
 
 
 jobs:
@@ -16,15 +16,16 @@ jobs:
     executor: rust
     steps:
       - checkout
+      - run: cargo fmt -- --check
       - run:
-          name: Rustfmt
-          command: cargo fmt -- --check
-      - run:
-          name: Unit test
-          command: cargo test
-      - run:
-          name: Integration test
-          command: ./tests/runner.sh
+          name: Python checkstyle
+          working_directory: tests
+          command: |
+            yapf --diff *.py
+            pylint *.py
+      - run: cargo build
+      - run: cargo test
+      - run: pytest tests/
 
   clippy:
     executor: rust

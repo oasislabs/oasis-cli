@@ -8,6 +8,7 @@ extern crate log;
 mod command;
 mod config;
 mod dialogue;
+mod dirs;
 mod error;
 mod subcommands;
 #[macro_use]

@@ -23,17 +23,30 @@ endpoint = "ws://localhost:8546"
 enabled = false
 "#;
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            doc: toml_edit::Document::from_str(DEFAULT_CONFIG_TOML).unwrap(),
+        }
+    }
+}
+
 impl Config {
     pub fn new() -> Self {
-        let mut doc = toml_edit::Document::from_str(DEFAULT_CONFIG_TOML).unwrap();
-        *doc.as_table_mut().entry("telemetry") = toml_edit::Item::Table(Telemetry::new().into());
-        Self { doc }
+        let mut config = Self::default();
+        *config.doc.as_table_mut().entry("telemetry") =
+            toml_edit::Item::Table(Telemetry::new().into());
+        config
     }
 
     pub fn load() -> Result<Self, failure::Error> {
         let config_path = Self::default_path()?;
         if !config_path.exists() {
-            Self::generate(&config_path)
+            if !Self::skip_generate() {
+                Self::generate(&config_path)
+            } else {
+                Ok(Self::default())
+            }
         } else {
             debug!("loading configuration from `{}`", config_path.display());
             Self::read_from_file(&config_path)
@@ -41,7 +54,11 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), failure::Error> {
-        self.write_to_file(Self::default_path()?)
+        if !Self::skip_generate() {
+            self.write_to_file(Self::default_path()?)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn enable_telemetry(&mut self, enabled: bool) {
@@ -110,13 +127,13 @@ impl Config {
 
 impl Config {
     fn generate(path: &Path) -> Result<Self, failure::Error> {
-        let config = Self::new();
+        let mut config = Self::new();
 
         dialogue::introduction();
-        config.telemetry().enabled = match crate::oasis_dir!(data) {
+        config.enable_telemetry(match crate::oasis_dir!(data) {
             Ok(telemetry_dir) => dialogue::prompt_telemetry(&telemetry_dir)?,
             Err(_) => false,
-        };
+        });
 
         config.write_to_file(path)?;
 
@@ -141,6 +158,12 @@ impl Config {
             path,
             self.doc.to_string_in_original_order(),
         )?)
+    }
+
+    fn skip_generate() -> bool {
+        std::env::var("OASIS_SKIP_GENERATE_CONFIG")
+            .map(|v| v == "1")
+            .unwrap_or_default()
     }
 }
 

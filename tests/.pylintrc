@@ -1,0 +1,9 @@
+[MASTER]
+good-names=i,j,k,cp
+no-docstring-rgx=^(_|[a-z]+$|test_|[\w_]+_config$)
+disable=redefined-outer-name
+ignored-argument-names=[\w_]+_config$
+
+[REPORTS]
+output-format=colorized
+score=no

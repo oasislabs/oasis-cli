@@ -117,7 +117,7 @@ pub fn print_status(status: Status, what: impl fmt::Display, whence: Option<&Pat
 #[macro_export]
 macro_rules! oasis_dir {
     ($dir:ident) => {{
-        use dirs::*;
+        use crate::dirs::*;
         use failure::format_err;
 
         concat_idents!($dir, _dir)()
