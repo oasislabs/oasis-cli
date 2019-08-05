@@ -25,6 +25,9 @@ class OasisEnv:
         with open(self.config_file) as f_config:
             return toml.load(f_config)
 
+    def run(self, *args, **kwargs):
+        return _run(*args, cwd=self.home_dir, **kwargs)
+
 
 @pytest.fixture(params=[None, 'custom_prefix'])
 def oenv(request):
@@ -32,8 +35,6 @@ def oenv(request):
     orig_home = orig_envs['HOME']
     orig_cwd = os.curdir
     with tempfile.TemporaryDirectory() as tempdir:
-        os.chdir(tempdir)
-
         os.environ['HOME'] = tempdir
         os.environ['CARGO_HOME'] = osp.join(orig_home, '.cargo')
         os.environ['RUSTUP_HOME'] = osp.join(orig_home, '.rustup')
@@ -58,17 +59,17 @@ def oenv(request):
 def default_config():
     assert os.environ['HOME'].startswith(
         '/tmp'), 'default_config fixture should come after oenv fixture'
-    run('oasis', stdout=DEVNULL, stderr=DEVNULL)
+    _run('oasis', stdout=DEVNULL, stderr=DEVNULL)
 
 
 @pytest.fixture
 def telemetry_config():
     assert os.environ['HOME'].startswith(
         '/tmp'), 'default_config fixture should come after oenv fixture'
-    run('oasis', input='y', stdout=DEVNULL, stderr=DEVNULL)
+    _run('oasis', input='y', stdout=DEVNULL, stderr=DEVNULL)
 
 
-def run(cmd, check=True, envs=None, **run_args):
+def _run(cmd, check=True, envs=None, **run_args):
     if envs:
         env = dict(os.environ)
         env.update(envs)
