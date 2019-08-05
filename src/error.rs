@@ -8,15 +8,14 @@ pub enum Error {
     ProcessExit(String, i32),
     #[fail(display = "failed to parse `{}`: `{}`", _0, _1)]
     ConfigParse(String, String),
-    #[fail(
-        display = "could not run `{}`, please make sure it is in your PATH.",
-        _0
-    )]
+    #[fail(display = "could not run `{}`. Please add it to your PATH", _0)]
     ExecNotFound(String),
-    #[fail(display = "could not read file `{}`: `{}`.", _0, _1)]
+    #[fail(display = "could not read file `{}`: `{}`", _0, _1)]
     ReadFile(String, String),
     #[fail(display = "no project in `{}` or any parent directory", _0)]
     DetectProject(String),
-    #[fail(display = "destination path `{}` already exists.", _0)]
+    #[fail(display = "destination path `{}` already exists", _0)]
     FileAlreadyExists(String),
+    #[fail(display = "unknown toolchain version: `{}`", _0)]
+    UnknownToolchain(String),
 }
