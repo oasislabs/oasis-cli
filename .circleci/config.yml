@@ -18,6 +18,9 @@ jobs:
       - checkout
       - run: cargo fmt -- --check
       - run:
+          name: Install Python deps
+          command: pip3 install toml
+      - run:
           name: Python checkstyle
           working_directory: tests
           command: |
