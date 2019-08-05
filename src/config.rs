@@ -61,23 +61,6 @@ impl Config {
         }
     }
 
-    pub fn enable_telemetry(&mut self, enabled: bool) {
-        *self
-            .doc
-            .as_table_mut()
-            .entry("telemetry")
-            .or_insert(toml_edit::Item::Table(Telemetry::default().into()))
-            .as_table_mut()
-            .unwrap()
-            .entry("enabled") = toml_edit::value(enabled);
-    }
-
-    pub fn default_path() -> Result<PathBuf, failure::Error> {
-        let mut config_path = crate::oasis_dir!(config)?;
-        config_path.push("config.toml");
-        Ok(config_path)
-    }
-
     pub fn get(&self, key: &str) -> Option<String> {
         use toml_edit::Item;
 
@@ -108,16 +91,6 @@ impl Config {
 
         match key.split('.').collect::<Vec<&str>>().as_slice() {
             ["profile", profile_name, key] => {
-                match *key {
-                    "mnemonic" | "private_key" | "endpoint" => (),
-                    _ => {
-                        return Err(failure::format_err!(
-                            "unknown configuration option: `{}`. Valid options are `mnemonic`, `private_key`, and `endpoint`.",
-                            key
-                        ))
-                    }
-                }
-
                 let profile = match self
                     .doc
                     .as_table_mut()
@@ -128,12 +101,22 @@ impl Config {
                     Some(toml_edit::Item::Table(profile)) => profile,
                     _ => return Err(failure::format_err!("No profile named `{}`", profile_name)),
                 };
-                if *key == "mnemonic" {
-                    profile.remove("private_key");
-                } else if *key == "private_key" {
-                    profile.remove("mnemonic");
+                match *key {
+                    "mnemonic" => {
+                        profile.remove("private_key");
+                    }
+                    "private_key" => {
+                        profile.remove("mnemonic");
+                    }
+                    "endpoint" => (),
+                    _ => {
+                        return Err(failure::format_err!(
+                            "unknown configuration option: `{}`. \
+                             Valid options are `mnemonic`, `private_key`, and `endpoint`.",
+                            key
+                        ))
+                    }
                 }
-
                 *profile.entry(key) = toml_edit::value(value);
             }
             ["telemetry", key] => match *key {
@@ -196,6 +179,12 @@ impl Config {
         Ok(config)
     }
 
+    fn default_path() -> Result<PathBuf, failure::Error> {
+        let mut config_path = crate::oasis_dir!(config)?;
+        config_path.push("config.toml");
+        Ok(config_path)
+    }
+
     fn read_from_file(path: &Path) -> Result<Self, failure::Error> {
         let config_string = fs::read_to_string(path)
             .map_err(|err| Error::ReadFile(path.display().to_string(), err.to_string()))?;
@@ -216,18 +205,17 @@ impl Config {
             .map(|v| v == "1")
             .unwrap_or_default()
     }
-}
 
-#[allow(unused)]
-pub struct Profile {
-    pub secret: Option<Secret>,
-    pub endpoint: String,
-}
-
-#[allow(unused)]
-pub enum Secret {
-    Mnemnoic(String),
-    Key(String),
+    fn enable_telemetry(&mut self, enabled: bool) {
+        *self
+            .doc
+            .as_table_mut()
+            .entry("telemetry")
+            .or_insert(toml_edit::Item::Table(Telemetry::default().into()))
+            .as_table_mut()
+            .unwrap()
+            .entry("enabled") = toml_edit::value(enabled);
+    }
 }
 
 #[derive(Default)]
