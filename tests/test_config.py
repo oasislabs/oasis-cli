@@ -67,9 +67,13 @@ def test_edit_secret(oenv, telemetry_config):
 
     run(f'oasis config profile.default.mnemonic "{mnemonic}"')
     assert 'private_key' not in oenv.load_config()['profile']['default']
+    cp = run('oasis config profile.default.mnemonic', stdout=PIPE)
+    assert cp.stdout == f'"{mnemonic}"\n'
 
 
 def test_edit_endpoint(oenv, telemetry_config):
     endpoint = 'wss://gateway.oasiscloud.io'
-    cp = run(f'oasis config profile.local.endpoint "{endpoint}"')
+    run(f'oasis config profile.local.endpoint "{endpoint}"')
     assert oenv.load_config()['profile']['local']['endpoint'] == endpoint
+    cp = run('oasis config profile.local.endpoint', stdout=PIPE)
+    assert cp.stdout == f'"{endpoint}"\n'

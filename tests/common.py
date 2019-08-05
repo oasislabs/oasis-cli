@@ -10,6 +10,7 @@ import pytest
 
 TARGET_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..', 'target', 'debug'))
 
+
 class OasisEnv:
     """Provides information about the virtual user environment in which
        the CLI is currently running."""
