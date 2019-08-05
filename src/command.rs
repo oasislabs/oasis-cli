@@ -26,6 +26,21 @@ impl From<i64> for Verbosity {
     }
 }
 
+// `cmd` captures output and is intended for internal use.
+#[macro_export]
+macro_rules! cmd {
+    ($prog:expr, $( $arg:expr ),+) => {{
+        let mut cmd = std::process::Command::new($prog);
+        $( cmd.arg($arg); )+
+        let output = cmd.output()?;
+        if !output.status.success() {
+            Err(failure::format_err!("{} exited with non-zero status code", $prog))
+        } else {
+            Ok(output)
+        }
+    }}
+}
+
 pub fn run_cmd(
     name: &'static str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,

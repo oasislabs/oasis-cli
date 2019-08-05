@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use heck::{CamelCase, SnakeCase};
 
 use crate::{
+    cmd,
     command::Verbosity,
     emit,
     error::Error,
     utils::{print_status, Status},
 };
 
-const TEMPLATE_URL: &str = "https://github.com/oasislabs/template";
+const TEMPLATE_REPO_URL: &str = "https://github.com/oasislabs/template";
 const TEMPLATE_TGZ_BYTES: &[u8] = include_bytes!(env!("TEMPLATE_INCLUDE_PATH"));
 
 pub struct InitOptions<'a> {
@@ -60,6 +61,7 @@ fn init_rust(opts: &InitOptions) -> Result<(), failure::Error> {
     if dest.exists() {
         return Err(Error::FileAlreadyExists(dest.display().to_string()).into());
     }
+    std::fs::create_dir_all(dest)?;
 
     match clone_template_repo(dest) {
         Ok(_) => {
@@ -73,7 +75,7 @@ fn init_rust(opts: &InitOptions) -> Result<(), failure::Error> {
             })?;
         }
     }
-    git2::Repository::init(dest)?;
+    cmd!("git", "init", dest)?;
 
     let project_name = dest
         .file_name()
@@ -89,39 +91,41 @@ fn init_rust(opts: &InitOptions) -> Result<(), failure::Error> {
 }
 
 fn clone_template_repo(dest: &Path) -> Result<(), failure::Error> {
-    let repo = git2::Repository::clone(TEMPLATE_URL, dest)?;
-    let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
-    let tag_names = repo.tag_names(Some("v*"))?;
-    let mut latest_tag = "";
-    let mut latest_ver = semver::Version::new(0, 0, 0);
-    for tag_name in tag_names.iter() {
-        let tag_name = tag_name.unwrap();
-        if let Ok(ver) = semver::Version::parse(&tag_name[1..] /* strip leading 'v' */) {
-            if version_req.matches(&ver) && ver > latest_ver {
-                latest_ver = ver;
-                latest_tag = tag_name;
-            }
-        }
-    }
-    repo.reset(
-        &repo
-            .find_reference(&format!("refs/tags/{}", latest_tag))?
-            .peel_to_commit()?
-            .as_object(),
-        git2::ResetType::Hard,
-        None, /* checkout builder */
-    )?;
-    std::fs::remove_dir_all(dest.join(".git"))?;
-    Ok(())
+    let dest = dest.canonicalize()?;
+    cmd!("git", "clone", TEMPLATE_REPO_URL, &dest)?;
+    let orig_dir = std::env::current_dir()?;
+    std::env::set_current_dir(&dest)?;
+    let do_clone = || {
+        let version_req = semver::VersionReq::parse(env!("TEMPLATE_VER")).unwrap();
+        let tags_str = String::from_utf8(cmd!("git", "tag", "-l", "v*.*.*")?.stdout).unwrap();
+        let best_tag = tags_str
+            .trim()
+            .split('\n')
+            .filter_map(|t| {
+                let ver = semver::Version::parse(&t[1..]).expect(t);
+                if version_req.matches(&ver) {
+                    Some((ver, t))
+                } else {
+                    None
+                }
+            })
+            .max()
+            .unwrap()
+            .1;
+        cmd!("git", "reset", "--hard", best_tag)?;
+        std::fs::remove_dir_all(dest.join(".git"))?;
+        Ok(())
+    };
+    let result = do_clone();
+    std::env::set_current_dir(orig_dir)?;
+    result
 }
 
 fn unpack_template_tgz(dest: &Path) -> Result<(), failure::Error> {
     let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(TEMPLATE_TGZ_BYTES));
     for entry in ar.entries()? {
         let mut entry = entry?;
-        let entry_path = entry.path()?;
-        let file_path = dest.join(entry_path.iter().skip(1).collect::<PathBuf>());
-        entry.unpack(file_path)?;
+        entry.unpack(dest.join(entry.path()?)).unwrap();
     }
     Ok(())
 }

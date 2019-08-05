@@ -164,7 +164,6 @@ fn test_js(
             "--prefix",
             package_dir.to_str().unwrap(),
             "--quiet",
-            "--no-progress",
         ];
         if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
             emit!(cmd.test.error, { "cause": "npm install" });
