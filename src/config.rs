@@ -21,7 +21,6 @@ endpoint = "ws://localhost:8546"
 
 [telemetry]
 enabled = false
-user_id = "";
 "#;
 
 impl Config {
