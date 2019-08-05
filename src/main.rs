@@ -50,6 +50,8 @@ fn main() {
             (about: "Run tests against a simulated Oasis runtime")
             (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg profile: -p --profile default_value[local]
+                "Set testing profile. Run `oasis config profile` to list available profiles.")
             (@arg quiet: +multiple -q --quiet "Decrease verbosity")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")

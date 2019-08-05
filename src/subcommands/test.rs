@@ -9,15 +9,19 @@ use crate::{
 pub struct TestOptions<'a> {
     services: Vec<String>,
     debug: bool,
+    profile: String,
     verbosity: Verbosity,
     tester_args: Vec<&'a str>,
 }
 
 impl<'a> TestOptions<'a> {
     pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
+        let profile: String = m.value_of("profile").unwrap_or("default").to_string();
+        println!("profile = {}", profile);
         Ok(Self {
             debug: m.is_present("debug"),
             services: m.values_of_lossy("SERVICE").unwrap_or_default(),
+            profile,
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
             ),
@@ -180,7 +184,10 @@ fn test_js(
     npm_args.extend(opts.tester_args.iter());
 
     let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
-    npm_envs.insert(OsString::from("OASIS_PROFILE"), OsString::from("local"));
+    npm_envs.insert(
+        OsString::from("OASIS_PROFILE"),
+        OsString::from(&opts.profile),
+    );
     if let Err(e) = run_cmd_with_env("npm", npm_args, opts.verbosity, npm_envs) {
         emit!(cmd.test.error);
         return Err(e);
