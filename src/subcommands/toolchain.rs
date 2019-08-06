@@ -356,8 +356,7 @@ fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
 
 #[cfg(not(test))]
 fn current_year() -> u8 {
-    use chrono::Datelike as _;
-    (chrono::Utc::now().year() % 100) as u8
+    chrono::Datelike::year(&chrono::Utc::now()) as u8 % 100
 }
 
 #[cfg(test)]
@@ -387,7 +386,7 @@ mod tests {
                 week: 36
             }
         );
-        assert!(ReleaseVersion::from_str("19.55").is_err(),);
+        assert!(ReleaseVersion::from_str("19.55").is_err());
     }
 
     #[test]
