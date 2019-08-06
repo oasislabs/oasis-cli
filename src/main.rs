@@ -4,6 +4,8 @@
 extern crate clap;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate serde;
 
 mod command;
 mod config;
@@ -24,6 +26,12 @@ fn main() {
     env_logger::Builder::from_default_env()
         .format(log_format)
         .init();
+
+    if !dirs::has_home_dir() {
+        error!("could not determine home directory. Please ensure that $HOME is set.",);
+        // ^ this is a nice way of saying "wtf m8?"
+        std::process::exit(1);
+    }
 
     let mut app = clap_app!(oasis =>
         (about: crate_description!())

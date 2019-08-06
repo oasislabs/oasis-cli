@@ -8,7 +8,7 @@ use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
     error::Error,
-    utils::{detect_projects, print_status, ProjectKind, Status},
+    utils::{detect_projects, print_status, print_status_in, ProjectKind, Status},
 };
 
 pub struct BuildOptions<'a> {
@@ -98,10 +98,10 @@ fn build_rust(
     let cargo_envs = get_cargo_envs(&opts)?;
 
     if opts.verbosity > Verbosity::Quiet {
-        print_status(
+        print_status_in(
             Status::Building,
             product_names.join(", "),
-            Some(manifest_path.parent().unwrap()),
+            manifest_path.parent().unwrap(),
         );
     }
 
@@ -135,7 +135,7 @@ fn build_rust(
         .map(|n| n + ".wasm")
         .collect::<Vec<_>>();
     if opts.verbosity > Verbosity::Quiet {
-        print_status(Status::Preparing, wasm_names.join(","), None);
+        print_status(Status::Preparing, wasm_names.join(","));
     }
     for wasm_name in wasm_names {
         let wasm_file = wasm_dir.join(&wasm_name);
@@ -290,10 +290,10 @@ fn build_js(
     let package_dir = manifest_path.parent().unwrap();
 
     if opts.verbosity > Verbosity::Quiet {
-        print_status(
+        print_status_in(
             Status::Building,
             package_json["name"].as_str().unwrap(),
-            Some(package_dir),
+            package_dir,
         );
     }
 
