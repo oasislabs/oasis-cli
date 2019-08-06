@@ -17,17 +17,18 @@ cfg_if::cfg_if! {
     }
 }
 
+pub fn installed_release() -> Result<Release, failure::Error> {
+    let installed_release_file = oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE);
+    Ok(serde_json::from_slice(&fs::read(installed_release_file)?)?)
+}
+
 pub fn set(version: &str) -> Result<(), failure::Error> {
     let bin_dir = crate::dirs::bin_dir();
     let cache_dir = oasis_dir!(cache)?;
-    let installed_release_file = oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE);
 
     let requested_version = ReleaseVersion::from_str(version)?;
 
-    let installed_release: Release = fs::read(&installed_release_file)
-        .ok()
-        .and_then(|f| serde_json::from_slice(&f).ok())
-        .unwrap_or_default();
+    let installed_release = installed_release().unwrap_or_default();
 
     if requested_version
         .name()
@@ -59,7 +60,7 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
     }
 
     fs::write(
-        installed_release_file,
+        oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE),
         serde_json::to_string_pretty(&release).unwrap(),
     )
     .ok(); // This isn't catastropic. We'll just have to re-download later.
@@ -157,12 +158,20 @@ impl FromStr for ReleaseVersion {
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct Release {
+pub struct Release {
     name: String,
     tools: BTreeSet<Tool>,
 }
 
 impl Release {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn tools(&self) -> impl Iterator<Item = &Tool> {
+        self.tools.iter()
+    }
+
     fn for_version(version: ReleaseVersion) -> Result<Option<Release>, failure::Error> {
         use xml::reader::{EventReader, XmlEvent};
 
@@ -233,11 +242,21 @@ impl Release {
 }
 
 #[derive(Debug, Eq, Ord)]
-struct Tool {
+pub struct Tool {
     name: String,
     ver: String,
     name_ver: String,
     s3_key: String,
+}
+
+impl Tool {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn ver(&self) -> &str {
+        &self.ver
+    }
 }
 
 impl PartialEq for Tool {

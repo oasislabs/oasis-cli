@@ -33,9 +33,33 @@ fn main() {
         std::process::exit(1);
     }
 
+    let mut versions = String::with_capacity(100);
+    versions.push_str(crate_version!());
+    if let Ok(r) = toolchain::installed_release() {
+        use crate::toolchain::Tool;
+        let (this_tool, other_tools): (Vec<&Tool>, Vec<&Tool>) =
+            r.tools().partition(|t| t.name() == "oasis");
+        if let Some(oasis) = this_tool.get(0) {
+            versions.push_str(" (");
+            versions.push_str(oasis.ver());
+            versions.push_str(")");
+        }
+        if !other_tools.is_empty() {
+            for t in other_tools {
+                versions.push('\n');
+                versions.push_str(t.name());
+                versions.push_str(" (");
+                versions.push_str(t.ver());
+                versions.push_str(")");
+            }
+        }
+        versions.push_str("\ntoolchain: ");
+        versions.push_str(r.name());
+    }
+
     let mut app = clap_app!(oasis =>
         (about: crate_description!())
-        (version: crate_version!())
+        (version: versions.as_str())
         (@setting InferSubcommands)
         (@subcommand init =>
             (about: "Create a new Oasis package")
