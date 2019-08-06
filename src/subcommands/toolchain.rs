@@ -49,7 +49,7 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
         return Ok(());
     }
 
-    for tool in dbg!(&release).tools.iter() {
+    for tool in release.tools.iter() {
         utils::print_status_ctx(utils::Status::Downloading, &tool.name, &tool.ver);
         tool.fetch(&cache_dir)
             .map_err(|e| failure::format_err!("could not download {}: {}", tool.name, e))?;

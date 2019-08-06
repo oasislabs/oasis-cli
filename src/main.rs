@@ -28,7 +28,7 @@ fn main() {
         .init();
 
     if !dirs::has_home_dir() {
-        error!("could not determine home directory. Please ensure that $HOME is set.",);
+        error!("could not determine home directory. Please ensure that $HOME is set.");
         // ^ this is a nice way of saying "wtf m8?"
         std::process::exit(1);
     }
