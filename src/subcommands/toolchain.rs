@@ -2,7 +2,6 @@ use std::{collections::BTreeSet, fs, io::Read, path::Path, str::FromStr};
 
 use crate::{error::Error, oasis_dir, utils};
 
-static TOOLS_URL: &str = "https://tools.oasis.dev";
 const OASIS_GENESIS_YEAR: u8 = 19;
 const WEEKS_IN_YEAR: u8 = 54;
 const INSTALLED_RELEASE_FILE: &str = "installed_release";
@@ -39,10 +38,11 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
         return Ok(());
     }
 
-    let release = match Release::for_version(requested_version) {
-        Ok(Some(release)) => release,
-        Ok(None) => return Err(Error::UnknownToolchain(version.to_string()).into()),
-        Err(e) => return Err(failure::format_err!("could not fetch releases: {}", e)),
+    let tools_client = ToolsClient::new()?;
+
+    let release = match Release::for_version(requested_version, tools_client.fetch_manifest()?) {
+        Some(release) => release,
+        None => return Err(Error::UnknownToolchain(version.to_string()).into()),
     };
 
     if release == installed_release {
@@ -52,7 +52,8 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
 
     for tool in release.tools.iter() {
         utils::print_status_ctx(utils::Status::Downloading, &tool.name, &tool.ver);
-        tool.fetch(&cache_dir)
+        tools_client
+            .fetch_tool(&tool, &cache_dir)
             .map_err(|e| failure::format_err!("could not download {}: {}", tool.name, e))?;
     }
     for tool in release.tools.iter() {
@@ -172,12 +173,12 @@ impl Release {
         self.tools.iter()
     }
 
-    fn for_version(version: ReleaseVersion) -> Result<Option<Release>, failure::Error> {
+    fn for_version(version: ReleaseVersion, tools_manifest: impl Read) -> Option<Release> {
         use xml::reader::{EventReader, XmlEvent};
 
         let mut tools = BTreeSet::new(); // there aren't many tools
 
-        let tools_parser = EventReader::new(fetch_tools_xml()?);
+        let tools_parser = EventReader::new(tools_manifest);
         let mut in_key_tag = false;
         let mut target_version = if version == ReleaseVersion::Latest {
             ReleaseVersion::default()
@@ -217,16 +218,11 @@ impl Release {
                 Ok(XmlEvent::EndElement { .. }) => {
                     in_key_tag = false;
                 }
-                Err(_) => {
-                    return Err(failure::format_err!(
-                        "unable to fetch tool versions. \
-                         Try checking https://status.oasis.dev for system status."
-                    ))
-                }
+                Err(_) => return None,
                 _ => (),
             }
         }
-        Ok(if !tools.is_empty() {
+        if !tools.is_empty() {
             Some(Release {
                 name: if version == ReleaseVersion::Unstable {
                     "unstable".to_string()
@@ -237,7 +233,7 @@ impl Release {
             })
         } else {
             None
-        })
+        }
     }
 }
 
@@ -268,22 +264,6 @@ impl PartialEq for Tool {
 impl PartialOrd for Tool {
     fn partial_cmp(&self, other: &Tool) -> Option<std::cmp::Ordering> {
         self.name_ver.partial_cmp(&other.name_ver)
-    }
-}
-
-impl Tool {
-    fn fetch(&self, out_dir: &Path) -> Result<(), failure::Error> {
-        let out_path = out_dir.join(&self.name_ver);
-        if out_path.exists() {
-            return Ok(());
-        }
-        let mut res = reqwest::get(TOOLS_URL)?;
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(out_dir.join(&self.name_ver))?;
-        res.copy_to(&mut f)?;
-        Ok(())
     }
 }
 
@@ -333,15 +313,39 @@ impl<'de> serde::Deserialize<'de> for Tool {
     }
 }
 
-#[cfg(not(test))]
-fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
-    Ok(reqwest::get(TOOLS_URL)?)
+/// `ToolsClient` is an abstraction over a `reqwest::Client` that respects the system proxy.
+/// Also has testing stubs, where necessary.
+struct ToolsClient {
+    client: reqwest::Client,
+    url: reqwest::Url,
 }
 
-#[cfg(test)]
-fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
-    Ok(std::io::Cursor::new(format!(
-        r#"<Test>
+impl ToolsClient {
+    #[cfg(debug_assertions)]
+    const TOOLS_URL: &'static str = "http://tools.oasis.dev";
+    #[cfg(not(debug_assertions))]
+    const TOOLS_URL: &'static str = "https://tools.oasis.dev";
+
+    fn new() -> Result<Self, failure::Error> {
+        Ok(Self {
+            client: reqwest::Client::builder().use_sys_proxy().build()?,
+            url: reqwest::Url::parse(Self::TOOLS_URL).unwrap(),
+        })
+    }
+
+    #[cfg(not(test))]
+    fn fetch_manifest(&self) -> Result<impl Read, failure::Error> {
+        Ok(self
+            .client
+            .get(self.url.clone())
+            .send()
+            .map_err(|e| failure::format_err!("could not fetch releases: {}", e))?)
+    }
+
+    #[cfg(test)]
+    fn fetch_manifest(&self) -> Result<impl Read, failure::Error> {
+        Ok(std::io::Cursor::new(format!(
+            r#"<Test>
             <Key>{0}/cache/oasis-abcdef</Key>
             <Key>{0}/current/oasis-0a515</Key>
             <Key>{0}/release/19.36/oasis-tool-ae5b4f</Key>
@@ -350,8 +354,23 @@ fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
             <Key>{0}/release/20.34/oasis-build-build-123456</Key>
             <Key>{0}/current/oasis-build-c0deaf</Key>
         </Test>"#,
-        PLATFORM
-    )))
+            PLATFORM
+        )))
+    }
+
+    fn fetch_tool(&self, tool: &Tool, out_dir: &Path) -> Result<(), failure::Error> {
+        let out_path = out_dir.join(&tool.name_ver);
+        if out_path.exists() {
+            return Ok(());
+        }
+        let mut res = self.client.get(self.url.join(&tool.s3_key)?).send()?;
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(out_dir.join(&tool.name_ver))?;
+        res.copy_to(&mut f)?;
+        Ok(())
+    }
 }
 
 #[cfg(not(test))]
@@ -406,9 +425,8 @@ mod tests {
 
     #[test]
     fn test_release_for_version_unstable() {
-        let r = Release::for_version(ReleaseVersion::Unstable)
-            .unwrap()
-            .unwrap();
+        let tools_xml = ToolsClient::new().unwrap().fetch_manifest().unwrap();
+        let r = Release::for_version(ReleaseVersion::Unstable, tools_xml).unwrap();
         assert_eq!(r.name, "unstable");
         assert_eq!(r.tools.len(), 2);
         assert!(r
@@ -423,9 +441,8 @@ mod tests {
 
     #[test]
     fn test_release_for_version_latest() {
-        let r = Release::for_version(ReleaseVersion::Latest)
-            .unwrap()
-            .unwrap();
+        let tools_xml = ToolsClient::new().unwrap().fetch_manifest().unwrap();
+        let r = Release::for_version(ReleaseVersion::Latest, tools_xml).unwrap();
         assert_eq!(r.name, "20.34");
         assert_eq!(r.tools.len(), 2);
         assert!(r
@@ -440,12 +457,15 @@ mod tests {
 
     #[test]
     fn test_release_for_version_named() {
-        let r = Release::for_version(ReleaseVersion::Named {
-            name: "19.36".to_string(),
-            year: 19,
-            week: 36,
-        })
-        .unwrap()
+        let tools_xml = ToolsClient::new().unwrap().fetch_manifest().unwrap();
+        let r = Release::for_version(
+            ReleaseVersion::Named {
+                name: "19.36".to_string(),
+                year: 19,
+                week: 36,
+            },
+            tools_xml,
+        )
         .unwrap();
         assert_eq!(r.name, "19.36");
         assert_eq!(r.tools.len(), 2);
