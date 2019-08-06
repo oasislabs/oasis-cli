@@ -1,10 +1,11 @@
-use std::str::FromStr;
-
-use chrono::Datelike as _;
+use std::{io::Read, str::FromStr};
 
 use crate::error::Error;
 
+#[cfg(not(test))]
 static TOOLS_URL: &str = "https://tools.oasis.dev";
+const OASIS_GENESIS_YEAR: u8 = 19;
+const WEEKS_IN_YEAR: u8 = 54;
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
@@ -12,91 +13,325 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_os = "macos")] {
         static PLATFORM: &str = "darwin";
     } else {
-        compile_error!(
-            "`oasis-cli` does not support your platform. How did you even get this error?");
+        compile_error!("`oasis-cli` does not support your platform. Thanks for trying!");
     }
 }
 
 pub fn set(version: &str) -> Result<(), failure::Error> {
-    let release = fetch_release(ReleaseVersion::from_str(version)?)?;
+    let release = Release::for_version(ReleaseVersion::from_str(version)?)?;
+    let cache_dir = crate::oasis_dir!(cache);
+    for tool in release.tools {
+        tool.fetch(&cache_dir)?;
+    }
     Ok(())
 }
 
-fn fetch_release(version: ReleaseVersion) -> Result<Release, failure::Error> {
-    use xml::reader::{EventReader, XmlEvent};
-    let mut tools = Vec::with_capacity(4); // there aren't many tools
-    let tools_parser = EventReader::new(reqwest::get(TOOLS_URL)?);
-    let mut in_key = false;
-    for e in tools_parser {
-        match e {
-            Ok(XmlEvent::StartElement { name, .. }) => {
-                in_key = name.local_name == "Key";
-            }
-            Ok(XmlEvent::Characters(s3_key)) => {
-                if !in_key || !s3_key.starts_with(PLATFORM) {
-                    continue;
-                }
-                let mut spec = s3_key.split('/').skip(1); // skip <platform>
-                let release_state = spec.next().unwrap();
-                if (version == ReleaseVersion::Unstable && release_state != "current")
-                    || (version != ReleaseVersion::Unstable && release_state != "release")
-                {
-                    continue;
-                }
-                println!("{}", s3_key);
-            }
-            Ok(XmlEvent::EndElement { name }) => {
-                in_key = false;
-            }
-            Err(e) => {
-                return Err(failure::format_err!(
-                    "unable to fetch tool versions. \
-                     Try checking https://toolstate.oasis.dev for system status."
-                ))
-            }
-            _ => (),
-        }
-    }
-    Ok(Release {
-        name: "current".to_string(),
-        tools: Vec::new(),
-    })
-}
-
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Debug)]
 enum ReleaseVersion {
     Latest,
     Unstable,
-    Named(String),
+    Named { name: String, year: u8, week: u8 },
+}
+
+impl ReleaseVersion {
+    fn name(&self) -> Option<&str> {
+        match self {
+            ReleaseVersion::Named { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+}
+
+impl Default for ReleaseVersion {
+    fn default() -> Self {
+        Self::Named {
+            name: "".to_string(),
+            year: 0,
+            week: 0,
+        }
+    }
+}
+
+impl PartialEq for ReleaseVersion {
+    fn eq(&self, other: &ReleaseVersion) -> bool {
+        use ReleaseVersion::*;
+        match (self, other) {
+            (Unstable, Unstable) | (Latest, Latest) => true,
+            (Named { name: sn, .. }, Named { name: on, .. }) => sn == on,
+            _ => false, // `Latest` and `Named` are incomparable without first fetching versions
+        }
+    }
+}
+
+impl PartialOrd for ReleaseVersion {
+    fn partial_cmp(&self, other: &ReleaseVersion) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+        use ReleaseVersion::*;
+        if self == other {
+            return Some(Ordering::Equal);
+        }
+        match (self, other) {
+            (_, Unstable) => Some(Ordering::Less),
+            (Unstable, _) => Some(Ordering::Greater),
+            (
+                Named {
+                    year: sy, week: sw, ..
+                },
+                Named {
+                    year: oy, week: ow, ..
+                },
+            ) => (sy, sw).partial_cmp(&(oy, ow)),
+            _ => None, // `Latest` and `Named` are incomparable without first fetching versions
+        }
+    }
 }
 
 impl FromStr for ReleaseVersion {
-    type Err = Error;
+    type Err = failure::Error;
 
     fn from_str(version: &str) -> Result<Self, Self::Err> {
         Ok(match version {
-            "latest" => Self::Latest,
-            "latest-unstable" => Self::Unstable,
+            "latest" => ReleaseVersion::Latest,
+            "latest-unstable" => ReleaseVersion::Unstable,
             _ => match version.split('.').collect::<Vec<_>>().as_slice() {
-                [year, week]
-                    if (19..=(chrono::Utc::now().year() % 100) as u64)
-                        .contains(&u64::from_str(year).unwrap_or(0))
-                        && u64::from_str(week).unwrap_or(0) <= 54 =>
-                {
-                    Self::Named(version.to_string())
+                [year, week] => {
+                    let year = u8::from_str(year).unwrap_or(0);
+                    let week = u8::from_str(week).unwrap_or(0);
+                    if (OASIS_GENESIS_YEAR..=current_year()).contains(&year)
+                        && week <= WEEKS_IN_YEAR
+                    {
+                        ReleaseVersion::Named {
+                            name: version.to_string(),
+                            week,
+                            year,
+                        }
+                    } else {
+                        return Err(Error::UnknownToolchain(version.to_string()).into());
+                    }
                 }
-                _ => return Err(Error::UnknownToolchain(version.to_string())),
+                _ => return Err(Error::UnknownToolchain(version.to_string()).into()),
             },
         })
     }
 }
 
+#[derive(Debug)]
 struct Release {
     name: String,
     tools: Vec<Tool>,
 }
 
+impl Release {
+    fn for_version(version: ReleaseVersion) -> Result<Release, failure::Error> {
+        use xml::reader::{EventReader, XmlEvent};
+
+        let mut tools = Vec::with_capacity(4); // there aren't many tools
+
+        let tools_parser = EventReader::new(fetch_tools_xml()?);
+        let mut in_key_tag = false;
+        let mut target_version = if version == ReleaseVersion::Latest {
+            ReleaseVersion::default()
+        } else {
+            version.clone()
+        };
+        for e in tools_parser {
+            match e {
+                Ok(XmlEvent::StartElement { name, .. }) => {
+                    in_key_tag = name.local_name == "Key";
+                }
+                Ok(XmlEvent::Characters(s3_key)) => {
+                    if !in_key_tag || !s3_key.starts_with(PLATFORM) {
+                        continue;
+                    }
+                    let mut spec = s3_key.split('/').skip(1); // skip <platform>
+                    let tool_stage = spec.next().unwrap();
+
+                    if target_version == ReleaseVersion::Unstable {
+                        if tool_stage == "current" {
+                            tools.push(Tool::from_str(&s3_key).unwrap());
+                        }
+                        continue;
+                    }
+                    if tool_stage != "release" {
+                        continue;
+                    }
+                    let tool_ver = ReleaseVersion::from_str(spec.next().unwrap()).unwrap();
+                    if version == ReleaseVersion::Latest && target_version < tool_ver {
+                        tools.clear();
+                        target_version = tool_ver.clone();
+                    }
+                    if tool_ver == target_version {
+                        tools.push(Tool::from_str(&s3_key).unwrap());
+                    }
+                }
+                Ok(XmlEvent::EndElement { .. }) => {
+                    in_key_tag = false;
+                }
+                Err(_) => {
+                    return Err(failure::format_err!(
+                        "unable to fetch tool versions. \
+                         Try checking https://status.oasis.dev for system status."
+                    ))
+                }
+                _ => (),
+            }
+        }
+        Ok(Release {
+            name: if version == ReleaseVersion::Unstable {
+                "unstable".to_string()
+            } else {
+                target_version.name().unwrap().to_string()
+            },
+            tools,
+        })
+    }
+}
+
+#[derive(Debug)]
 struct Tool {
     name: String,
     s3_key: String,
+}
+
+impl FromStr for Tool {
+    type Err = failure::Error;
+
+    fn from_str(s3_key: &str) -> Result<Self, Self::Err> {
+        s3_key
+            .rsplitn(2, '/')
+            .nth(0) // `rsplitn` reverses, so this is actually the last component
+            .and_then(
+                |tool_hash| match tool_hash.rsplitn(2, '-').collect::<Vec<_>>().as_slice() {
+                    [_hash, tool] => Some(Tool {
+                        name: tool.to_string(),
+                        s3_key: s3_key.to_string(),
+                    }),
+                    _ => None,
+                },
+            )
+            .ok_or_else(|| failure::format_err!("invalid tool key: `{}`", s3_key))
+    }
+}
+
+#[cfg(not(test))]
+fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
+    Ok(reqwest::get(TOOLS_URL)?)
+}
+
+#[cfg(test)]
+fn fetch_tools_xml() -> Result<impl Read, failure::Error> {
+    Ok(std::io::Cursor::new(format!(
+        r#"<Test>
+            <Key>{0}/cache/oasis-abcdef</Key>
+            <Key>{0}/current/oasis-0a515</Key>
+            <Key>{0}/release/19.36/oasis-tool-ae5b4f</Key>
+            <Key>{0}/release/20.34/oasis-chain-7777777</Key>
+            <Key>{0}/release/19.36/oasis-tool2-ae5b4f</Key>
+            <Key>{0}/release/20.34/oasis-build-build-123456</Key>
+            <Key>{0}/current/oasis-build-c0deaf</Key>
+        </Test>"#,
+        PLATFORM
+    )))
+}
+
+#[cfg(not(test))]
+fn current_year() -> u8 {
+    use chrono::Datelike as _;
+    (chrono::Utc::now().year() % 100) as u8
+}
+
+#[cfg(test)]
+fn current_year() -> u8 {
+    99 // Let's be real: none of us are going to be around when this causes the tests to fail.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_parse() {
+        assert_eq!(
+            ReleaseVersion::from_str("latest").unwrap(),
+            ReleaseVersion::Latest
+        );
+        assert_eq!(
+            ReleaseVersion::from_str("latest-unstable").unwrap(),
+            ReleaseVersion::Unstable
+        );
+        assert_eq!(
+            ReleaseVersion::from_str("19.36").unwrap(),
+            ReleaseVersion::Named {
+                name: "19.36".to_string(),
+                year: 19,
+                week: 36
+            }
+        );
+        assert!(ReleaseVersion::from_str("19.55").is_err(),);
+    }
+
+    #[test]
+    fn test_version_ord() {
+        let named_early = ReleaseVersion::from_str("19.36").unwrap();
+        let named_late = ReleaseVersion::from_str("20.10").unwrap();
+        let latest = ReleaseVersion::Latest;
+        let unstable = ReleaseVersion::Unstable;
+
+        assert!(named_early < unstable);
+        assert!(named_late < unstable);
+        assert!(latest < unstable);
+
+        assert!(named_early < named_late);
+        assert!(named_early.partial_cmp(&latest).is_none());
+    }
+
+    #[test]
+    fn test_release_for_version_unstable() {
+        let r = Release::for_version(ReleaseVersion::Unstable).unwrap();
+        assert_eq!(r.name, "unstable");
+        assert_eq!(r.tools.len(), 2);
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis" && t.s3_key.ends_with("0a515")));
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis-build" && t.s3_key.ends_with("c0deaf")));
+    }
+
+    #[test]
+    fn test_release_for_version_latest() {
+        let r = Release::for_version(ReleaseVersion::Latest).unwrap();
+        assert_eq!(r.name, "20.34");
+        assert_eq!(r.tools.len(), 2);
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis-chain" && t.s3_key.ends_with("7777777")));
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis-build-build" && t.s3_key.ends_with("123456")));
+    }
+
+    #[test]
+    fn test_release_for_version_named() {
+        let r = Release::for_version(ReleaseVersion::Named {
+            name: "19.36".to_string(),
+            year: 19,
+            week: 36,
+        })
+        .unwrap();
+        assert_eq!(r.name, "19.36");
+        assert_eq!(r.tools.len(), 2);
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis-tool" && t.s3_key.ends_with("ae5b4f")));
+        assert!(r
+            .tools
+            .iter()
+            .any(|t| t.name == "oasis-tool2" && t.s3_key.ends_with("ae5b4f")));
+    }
 }

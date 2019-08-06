@@ -3,7 +3,7 @@ pub static SET_TOOLCHAIN: &str = r"VERSION FORMAT:
 
     A release string looks like `19.36` where the first number is the
     two-digit year and the second number is the week number. You can
-    find a list of available versions at https://toolstate.oasis.dev.
+    find a list of available versions at https://oasis.dev/releases.
 
     `latest[-unstable]` will resolve to the most recent release that
-    is either stable (`latest`) or non-broken (`-unstable`).";
+    is stable (`latest`) or non-broken (`latest-unstable`).";
