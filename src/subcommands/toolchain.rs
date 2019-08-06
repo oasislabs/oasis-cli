@@ -388,7 +388,9 @@ mod tests {
 
     #[test]
     fn test_release_for_version_unstable() {
-        let r = Release::for_version(ReleaseVersion::Unstable).unwrap();
+        let r = Release::for_version(ReleaseVersion::Unstable)
+            .unwrap()
+            .unwrap();
         assert_eq!(r.name, "unstable");
         assert_eq!(r.tools.len(), 2);
         assert!(r
@@ -403,7 +405,9 @@ mod tests {
 
     #[test]
     fn test_release_for_version_latest() {
-        let r = Release::for_version(ReleaseVersion::Latest).unwrap();
+        let r = Release::for_version(ReleaseVersion::Latest)
+            .unwrap()
+            .unwrap();
         assert_eq!(r.name, "20.34");
         assert_eq!(r.tools.len(), 2);
         assert!(r
@@ -423,6 +427,7 @@ mod tests {
             year: 19,
             week: 36,
         })
+        .unwrap()
         .unwrap();
         assert_eq!(r.name, "19.36");
         assert_eq!(r.tools.len(), 2);
