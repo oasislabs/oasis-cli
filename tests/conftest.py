@@ -90,7 +90,8 @@ def oenv(request):
 class MockTool:
     """Factory for mock tool binaries and utilities for parsing their output."""
     def __init__(self):
-        with open(osp.join('res', 'mock_tool.sh')) as f_mock_tool:
+        mock_tool_path = osp.join(osp.dirname(__file__), 'res', 'mock_tool.sh')
+        with open(mock_tool_path) as f_mock_tool:
             self.mock_tool = f_mock_tool.read()
 
     def create(self, user_script=''):
