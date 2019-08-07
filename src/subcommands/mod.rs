@@ -5,6 +5,7 @@ mod deploy;
 mod ifextract;
 mod init;
 mod test;
+pub mod toolchain;
 
 pub use build::{build, BuildOptions};
 pub use chain::run_chain;
