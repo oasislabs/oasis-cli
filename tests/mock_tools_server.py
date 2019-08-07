@@ -32,12 +32,12 @@ def _get_manifest():
 
     # ^ hashes are not per-release, but it'll simplify testing
     for platform in PLATFORMS:
-        for release_name, _hash in RELEASE_HASHES:
+        for release_name, thash in RELEASE_HASHES:
             release_str = release_name
             if release_name not in {'current', 'cache'}:
                 release_str = f'release/{release_name}'
             for tool in TOOLS:
-                contents.append(_gen_contents(f'{platform}/{release_str}/{tool}-{hash}'))
+                contents.append(_gen_contents(f'{platform}/{release_str}/{tool}-{thash}'))
 
     for extra in ['successful_builds', 'some_other_file']:
         contents.append(_gen_contents(extra))
@@ -105,9 +105,16 @@ class MockToolsHandler(http.server.BaseHTTPRequestHandler):
 def main():
     host = 'localhost'
     port = 8080
-    server = http.server.HTTPServer((host, port), MockToolsHandler)
-    print(f'{host}:{port}', flush=True)
-    server.serve_forever()
+    while True:
+        try:
+            server = http.server.HTTPServer((host, port), MockToolsHandler)
+            print(port, flush=True)
+            server.serve_forever()
+        except OSError as err:
+            if err.errno == 98:  # eaddr
+                port += 1
+            else:
+                raise err
 
 
 if __name__ == '__main__':
