@@ -3,7 +3,7 @@ use std::{ffi::OsString, path::Path};
 use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
-    utils::{detect_projects, print_status, ProjectKind, Status},
+    utils::{detect_projects, print_status_in, ProjectKind, Status},
 };
 
 pub struct TestOptions<'a> {
@@ -71,10 +71,10 @@ fn test_rust(
     );
 
     if opts.verbosity > Verbosity::Quiet {
-        print_status(
+        print_status_in(
             Status::Testing,
             product_names.join(", "),
-            Some(manifest_path.parent().unwrap()),
+            manifest_path.parent().unwrap(),
         );
     }
 
@@ -150,10 +150,10 @@ fn test_js(
     let package_dir = manifest_path.parent().unwrap();
 
     if opts.verbosity > Verbosity::Quiet {
-        print_status(
+        print_status_in(
             Status::Testing,
             package_json["name"].as_str().unwrap(),
-            Some(package_dir),
+            package_dir,
         );
     }
 

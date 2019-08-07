@@ -82,6 +82,7 @@ pub enum Status {
     Preparing,
     Testing,
     Created,
+    Downloading,
 }
 
 impl fmt::Display for Status {
@@ -94,48 +95,61 @@ impl fmt::Display for Status {
                 Self::Preparing => "Preparing".cyan(),
                 Self::Testing => "Testing".cyan(),
                 Self::Created => "Created".green(),
+                Self::Downloading => "Downloading".green(),
             }
         )
     }
 }
 
-pub fn print_status(status: Status, what: impl fmt::Display, whence: Option<&Path>) {
+pub fn print_status(status: Status, what: impl fmt::Display) {
+    print_status_ctx(status, what, "");
+}
+
+pub fn print_status_in(status: Status, what: impl fmt::Display, whence: &Path) {
     let cwd = std::env::current_dir().unwrap();
-    eprintln!(
-        "{} {}{}",
+    print_status_ctx(
         status,
-        what.to_string(),
-        match whence.map(|w| w.strip_prefix(cwd)) {
-            Some(Ok(rel_whence)) if rel_whence != Path::new("") => {
-                format!(" ({})", rel_whence.display())
-            }
-            _ => "".to_string(),
-        }
+        what,
+        whence
+            .strip_prefix(cwd)
+            .unwrap_or_else(|_| Path::new(""))
+            .display(),
     );
+}
+
+pub fn print_status_ctx(status: Status, what: impl fmt::Display, ctx: impl fmt::Display) {
+    eprint!("{} {}", status, what.to_string());
+    let ctx_str = ctx.to_string();
+    if !ctx_str.is_empty() {
+        eprintln!(" ({})", ctx_str);
+    }
+}
+
+#[macro_export]
+macro_rules! ensure_dir {
+    ($dir:ident$( .push($subdir:expr) )? ) => {{
+        use crate::dirs::*;
+        #[allow(unused_mut)]
+        let mut dir = concat_idents!($dir, _dir)();
+        $( dir.push($subdir); )?
+        if dir.is_file() {
+            Err(failure::format_err!(
+                "{} dir `{}` is a file",
+                stringify!($dir),
+                dir.display()
+            ))
+        } else {
+            if !dir.is_dir() {
+                std::fs::create_dir_all(&dir)?
+            }
+            Ok(dir)
+        }
+    }};
 }
 
 #[macro_export]
 macro_rules! oasis_dir {
-    ($dir:ident) => {{
-        use crate::dirs::*;
-        use failure::format_err;
-
-        concat_idents!($dir, _dir)()
-            .ok_or_else(|| format_err!("could not determine {} dir", stringify!($dir)))
-            .and_then(|mut dir| {
-                dir.push("oasis");
-                if dir.is_file() {
-                    return Err(format_err!(
-                        "{} dir `{}` is a file",
-                        stringify!(dir),
-                        dir.display()
-                    ));
-                }
-
-                if !dir.is_dir() {
-                    std::fs::create_dir_all(&dir)?;
-                }
-                Ok(dir)
-            })
-    }};
+    ($dir:ident) => {
+        $crate::ensure_dir!($dir.push("oasis"));
+    };
 }

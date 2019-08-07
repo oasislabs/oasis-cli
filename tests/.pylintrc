@@ -1,8 +1,8 @@
 [MASTER]
-good-names=i,j,k,cp
-no-docstring-rgx=^(_|[a-z]+$|test_|[\w_]+_config$)
+good-names=i,j,k,v,cp
+no-docstring-rgx=^(_|[a-z]+$|test_|[\w_]+_config$|mock_tool)
 disable=too-few-public-methods
-ignored-argument-names=([\w_]+_config$|oenv)
+ignored-argument-names=tools_proxy
 
 [REPORTS]
 output-format=colorized

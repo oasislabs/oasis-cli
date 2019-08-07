@@ -7,7 +7,7 @@ use crate::{
     command::Verbosity,
     emit,
     error::Error,
-    utils::{print_status, Status},
+    utils::{print_status_in, Status},
 };
 
 const TEMPLATE_REPO_URL: &str = "https://github.com/oasislabs/template";
@@ -51,7 +51,7 @@ pub fn init(opts: InitOptions) -> Result<(), failure::Error> {
         _ => unreachable!(),
     }?;
     if opts.verbosity > Verbosity::Quiet {
-        print_status(Status::Created, project_type_display, Some(&opts.dest));
+        print_status_in(Status::Created, project_type_display, &opts.dest);
     }
     Ok(())
 }
