@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, fs, io::Read, path::Path, str::FromStr};
+use std::{
+    collections::BTreeSet, fs, io::Read, os::unix::fs::PermissionsExt as _, path::Path,
+    str::FromStr,
+};
 
 use crate::{error::Error, oasis_dir, utils};
 
@@ -22,7 +25,7 @@ pub fn installed_release() -> Result<Release, failure::Error> {
 }
 
 pub fn set(version: &str) -> Result<(), failure::Error> {
-    let bin_dir = crate::dirs::bin_dir();
+    let bin_dir = crate::ensure_dir!(bin)?;
     let cache_dir = oasis_dir!(cache)?;
 
     let requested_version = ReleaseVersion::from_str(version)?;
@@ -57,7 +60,12 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
             .map_err(|e| failure::format_err!("could not download {}: {}", tool.name, e))?;
     }
     for tool in release.tools.iter() {
-        fs::rename(cache_dir.join(&tool.name_ver), bin_dir.join(&tool.name))?;
+        let dest = bin_dir.join(&tool.name);
+        fs::rename(cache_dir.join(&tool.name_ver), &dest)
+            .unwrap_or_else(|_| panic!("{:?} {:?} {:?}", tool, cache_dir, bin_dir));
+        let mut perms = fs::metadata(&dest)?.permissions();
+        perms.set_mode(0o755 /* o+rwd,ag+rx */);
+        fs::set_permissions(dest, perms)?;
     }
 
     fs::write(

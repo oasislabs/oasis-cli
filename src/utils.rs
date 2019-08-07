@@ -126,11 +126,12 @@ pub fn print_status_ctx(status: Status, what: impl fmt::Display, ctx: impl fmt::
 }
 
 #[macro_export]
-macro_rules! oasis_dir {
-    ($dir:ident) => {{
+macro_rules! ensure_dir {
+    ($dir:ident$( .push($subdir:expr) )? ) => {{
         use crate::dirs::*;
+        #[allow(unused_mut)]
         let mut dir = concat_idents!($dir, _dir)();
-        dir.push("oasis");
+        $( dir.push($subdir); )?
         if dir.is_file() {
             Err(failure::format_err!(
                 "{} dir `{}` is a file",
@@ -144,4 +145,11 @@ macro_rules! oasis_dir {
             Ok(dir)
         }
     }};
+}
+
+#[macro_export]
+macro_rules! oasis_dir {
+    ($dir:ident) => {
+        $crate::ensure_dir!($dir.push("oasis"));
+    };
 }
