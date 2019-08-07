@@ -16,7 +16,7 @@ TARGET_DIR = osp.join(PROJ_ROOT, 'target', 'debug')
 @pytest.fixture(params=[None, 'custom_prefix'])
 def oenv(request):
     # If this is outside, pytest tries to reuse it.
-    class OasisEnv: # pylint:disable=too-many-instance-attributes
+    class OasisEnv:  # pylint:disable=too-many-instance-attributes
         """Provides information about the virtual user environment in which
            the CLI is currently running."""
         def __init__(self, init_env, home_dir, user_config_dir, user_data_dir):
@@ -89,7 +89,6 @@ def oenv(request):
 
 class MockTool:
     """Factory for mock tool binaries and utilities for parsing their output."""
-
     def __init__(self):
         with open(osp.join('res', 'mock_tool.sh')) as f_mock_tool:
             self.mock_tool = f_mock_tool.read()

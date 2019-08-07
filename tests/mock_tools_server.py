@@ -51,7 +51,7 @@ class MockToolsHandler(http.server.BaseHTTPRequestHandler):
     URL = 'http://tools.oasis.dev'
     protocol_version = 'HTTP/1.1'
 
-    def do_GET(self): # pylint:disable=invalid-name
+    def do_GET(self):  # pylint:disable=invalid-name
         """Handles a GET request in a manner that similar to an s3 bucket.
             / - returns the bucket keys
             /<key> - returns the value stored at <key>
