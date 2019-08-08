@@ -4,6 +4,9 @@ use std::{
     str::FromStr as _,
 };
 
+use failure::format_err;
+use reqwest::Url;
+
 use crate::{dialogue, emit, error::Error};
 
 pub struct Config {
@@ -99,7 +102,7 @@ impl Config {
                     .map(|ps| ps.entry(profile_name))
                 {
                     Some(toml_edit::Item::Table(profile)) => profile,
-                    _ => return Err(failure::format_err!("No profile named `{}`", profile_name)),
+                    _ => return Err(format_err!("No profile named `{}`", profile_name)),
                 };
                 match *key {
                     "mnemonic" => {
@@ -110,7 +113,7 @@ impl Config {
                     }
                     "endpoint" => (),
                     _ => {
-                        return Err(failure::format_err!(
+                        return Err(format_err!(
                             "unknown configuration option: `{}`. \
                              Valid options are `mnemonic`, `private_key`, and `endpoint`.",
                             key
@@ -122,25 +125,20 @@ impl Config {
             ["telemetry", key] => match *key {
                 "enabled" => self.enable_telemetry(value.parse()?),
                 "user_id" => {
-                    return Err(failure::format_err!(
+                    return Err(format_err!(
                         "we'd prefer if you didn't modify `user_id`. \
                          If you feel strongly about it,\nyou can edit \
                          the config file directly."
                     ))
                 }
                 _ => {
-                    return Err(failure::format_err!(
+                    return Err(format_err!(
                         "unknown configuration option: `{}`. Valid options are `enabled`.",
                         key
                     ))
                 }
             },
-            _ => {
-                return Err(failure::format_err!(
-                    "unknown configuration option: `{}`",
-                    key
-                ))
-            }
+            _ => return Err(format_err!("unknown configuration option: `{}`", key)),
         }
 
         Ok(())
@@ -156,6 +154,19 @@ impl Config {
                 enabled: false,
                 user_id: "".to_string(),
             })
+    }
+
+    pub fn profile(&self, profile_name: &str) -> Result<Profile, failure::Error> {
+        Profile::try_from_table(
+            self.doc
+                .as_table()
+                .get("profile")
+                .and_then(|t| t.as_table())
+                .and_then(|t| t.get(profile_name))
+                .and_then(|t| t.as_table())
+                .ok_or_else(|| format_err!("`profile.{}` does not exist", profile_name))?,
+        )
+        .map_err(|ppe| ppe.into_error(profile_name))
     }
 }
 
@@ -263,5 +274,80 @@ impl From<Telemetry> for toml_edit::Table {
         *tab.entry("enabled") = toml_edit::value(tlm.enabled);
         *tab.entry("user_id") = toml_edit::value(tlm.user_id);
         tab
+    }
+}
+
+pub struct Profile {
+    pub endpoint: Url,
+    pub secret: Secret,
+}
+
+pub enum Secret {
+    Mnemonic(String),
+    Key(String),
+}
+
+impl Profile {
+    fn try_from_table(tab: &toml_edit::Table) -> Result<Self, ProfileParseError> {
+        let secret = match (tab.get("mnemonic"), tab.get("private_key")) {
+            (Some(_), Some(_)) => Err(ProfileParseError {
+                key: None,
+                cause: "only one of `mnemonic` and `private_key` can be specified".to_string(),
+            }),
+            (Some(m), _) => m
+                .as_str()
+                .map(|m| Secret::Mnemonic(m.to_string()))
+                .ok_or_else(|| ProfileParseError {
+                    key: Some("mnemonic"),
+                    cause: "value must be a string".to_string(),
+                }),
+            (_, Some(k)) => k
+                .as_str()
+                .map(|k| Secret::Key(k.to_string()))
+                .ok_or_else(|| ProfileParseError {
+                    key: Some("profile"),
+                    cause: "value must be a string".to_string(),
+                }),
+            (None, None) => Err(ProfileParseError {
+                key: None,
+                cause: "one of `mnemonic` and `private_key` is required".to_string(),
+            }),
+        }?;
+        Ok(Self {
+            endpoint: tab
+                .get("endpoint")
+                .and_then(|ep| ep.as_str())
+                .ok_or_else(|| ProfileParseError {
+                    key: None,
+                    cause: "`endpoint` is required".to_string(),
+                })
+                .and_then(|ep| {
+                    Url::parse(ep).map_err(|e: reqwest::UrlError| ProfileParseError {
+                        key: Some("endpoint"),
+                        cause: e.to_string(),
+                    })
+                })?,
+            secret,
+        })
+    }
+}
+
+pub struct ProfileParseError {
+    key: Option<&'static str>,
+    cause: String,
+}
+
+impl ProfileParseError {
+    fn into_error(self, profile_name: &str) -> failure::Error {
+        let subkey = match self.key {
+            Some(k) => format!(".{}", k),
+            None => "".to_string(),
+        };
+        format_err!(
+            "`profile.{}{}` is invalid: {}",
+            profile_name,
+            subkey,
+            self.cause
+        )
     }
 }

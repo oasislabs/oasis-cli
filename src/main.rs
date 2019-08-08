@@ -85,7 +85,7 @@ fn main() {
             (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg profile: -p --profile default_value[local]
-                "Set testing profile. Run `oasis config profile` to list available profiles.")
+                "Set testing profile. Run `oasis config profile` \nto list available profiles.")
             (@arg quiet: +multiple -q --quiet "Decrease verbosity")
             (@arg SERVICE: +multiple "Specify which service(s) to build")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")
@@ -148,7 +148,7 @@ fn main() {
     let result = match app_m.subcommand() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
-        ("test", Some(m)) => TestOptions::new(&m).exec(),
+        ("test", Some(m)) => TestOptions::new(&m, &config).exec(),
         ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
             m.value_of("SERVICE_URL").unwrap(),

@@ -2,25 +2,31 @@ use std::{ffi::OsString, path::Path};
 
 use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
+    config::Config,
     emit,
     utils::{detect_projects, print_status_in, ProjectKind, Status},
 };
 
 pub struct TestOptions<'a> {
-    services: Vec<String>,
+    services: Vec<&'a str>,
     debug: bool,
-    profile: String,
+    profile: &'a str,
     verbosity: Verbosity,
     tester_args: Vec<&'a str>,
 }
 
 impl<'a> TestOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
-        let profile: String = m.value_of("profile").unwrap_or("default").to_string();
-        println!("profile = {}", profile);
+    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, failure::Error> {
+        let profile = m.value_of("profile").unwrap();
+        if let Err(e) = config.profile(profile) {
+            return Err(e);
+        }
         Ok(Self {
             debug: m.is_present("debug"),
-            services: m.values_of_lossy("SERVICE").unwrap_or_default(),
+            services: m
+                .values_of("SERVICE")
+                .unwrap_or_default()
+                .collect::<Vec<&str>>(),
             profile,
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
@@ -51,13 +57,13 @@ fn test_rust(
     manifest_path: &Path,
     manifest: Box<cargo_toml::Manifest>,
 ) -> Result<(), failure::Error> {
-    let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
+    let cargo_args = get_cargo_args(&opts, manifest_path)?;
 
     let product_names = if opts.services.is_empty() {
         manifest
             .bin
             .iter()
-            .filter_map(|bin| bin.name.as_ref().map(String::to_string))
+            .filter_map(|bin| bin.name.as_ref().map(|n| n.as_str()))
             .collect()
     } else {
         opts.services.clone()
@@ -97,7 +103,6 @@ fn test_rust(
 fn get_cargo_args<'a>(
     opts: &'a TestOptions,
     manifest_path: &'a Path,
-    manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["test"];
     if opts.verbosity < Verbosity::Normal {
@@ -116,16 +121,6 @@ fn get_cargo_args<'a>(
         cargo_args.push("--bins");
     } else {
         for service_name in opts.services.iter() {
-            if !manifest
-                .bin
-                .iter()
-                .any(|bin| Some(service_name) == bin.name.as_ref())
-            {
-                return Err(failure::format_err!(
-                    "could not find service binary `{}` in crate",
-                    service_name
-                ));
-            }
             cargo_args.push("--bin");
             cargo_args.push(service_name);
         }
