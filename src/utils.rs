@@ -81,8 +81,9 @@ pub enum Status {
     Building,
     Preparing,
     Testing,
-    Created,
+    Deploying,
     Downloading,
+    Created,
 }
 
 impl fmt::Display for Status {
@@ -94,8 +95,9 @@ impl fmt::Display for Status {
                 Self::Building => "Building".cyan(),
                 Self::Preparing => "Preparing".cyan(),
                 Self::Testing => "Testing".cyan(),
+                Self::Deploying => "Deploying".cyan(),
+                Self::Downloading => "Downloading".cyan(),
                 Self::Created => "Created".green(),
-                Self::Downloading => "Downloading".green(),
             }
         )
     }
@@ -122,6 +124,8 @@ pub fn print_status_ctx(status: Status, what: impl fmt::Display, ctx: impl fmt::
     let ctx_str = ctx.to_string();
     if !ctx_str.is_empty() {
         eprintln!(" ({})", ctx_str);
+    } else {
+        eprintln!();
     }
 }
 

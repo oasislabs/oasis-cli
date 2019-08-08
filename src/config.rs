@@ -7,16 +7,26 @@ use std::{
 use failure::format_err;
 use reqwest::Url;
 
-use crate::{dialogue, emit, error::Error};
+use crate::{
+    dialogue, emit,
+    error::{Error, ProfileError, ProfileErrorKind},
+};
 
 pub struct Config {
     doc: toml_edit::Document,
 }
 
-static DEFAULT_CONFIG_TOML: &str = r#"
+macro_rules! default_gateway_url {
+    () => {
+        "wss://web3.devnet.oasiscloud.io/ws"
+    };
+}
+
+pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
+#[rustfmt::skip]
+static DEFAULT_CONFIG_TOML: &str = concat!(r#"
 [profile.default]
-private_key = ""
-endpoint = "https://gateway.devnet.oasiscloud.io"
+endpoint = ""#, default_gateway_url!(), r#"
 
 [profile.local]
 mnemonic = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
@@ -24,7 +34,7 @@ endpoint = "ws://localhost:8546"
 
 [telemetry]
 enabled = false
-"#;
+"#);
 
 impl Default for Config {
     fn default() -> Self {
@@ -156,17 +166,17 @@ impl Config {
             })
     }
 
-    pub fn profile(&self, profile_name: &str) -> Result<Profile, failure::Error> {
-        Profile::try_from_table(
-            self.doc
-                .as_table()
-                .get("profile")
-                .and_then(|t| t.as_table())
-                .and_then(|t| t.get(profile_name))
-                .and_then(|t| t.as_table())
-                .ok_or_else(|| format_err!("`profile.{}` does not exist", profile_name))?,
-        )
-        .map_err(|ppe| ppe.into_error(profile_name))
+    pub fn profile(&self, profile_name: &str) -> Result<Profile, ProfileError> {
+        Profile::try_from_table(profile_name, self.profile_raw(profile_name))
+    }
+
+    pub fn profile_raw(&self, profile_name: &str) -> Option<&toml_edit::Table> {
+        self.doc
+            .as_table()
+            .get("profile")
+            .and_then(|t| t.as_table())
+            .and_then(|t| t.get(profile_name))
+            .and_then(|t| t.as_table())
     }
 }
 
@@ -288,66 +298,58 @@ pub enum Secret {
 }
 
 impl Profile {
-    fn try_from_table(tab: &toml_edit::Table) -> Result<Self, ProfileParseError> {
+    fn try_from_table(
+        profile_name: &str,
+        profile_tab: Option<&toml_edit::Table>,
+    ) -> Result<Self, ProfileError> {
+        macro_rules! invalid_key {
+            ($key:expr, $cause:expr) => {
+                ProfileError {
+                    name: profile_name.to_string(),
+                    kind: ProfileErrorKind::Invalid {
+                        key: $key,
+                        cause: $cause.to_string(),
+                    },
+                }
+            };
+        }
+
+        let tab = match profile_tab {
+            Some(tab) => tab,
+            None => {
+                return Err(ProfileError {
+                    name: profile_name.to_string(),
+                    kind: ProfileErrorKind::Missing,
+                })
+            }
+        };
         let secret = match (tab.get("mnemonic"), tab.get("private_key")) {
-            (Some(_), Some(_)) => Err(ProfileParseError {
-                key: None,
-                cause: "only one of `mnemonic` and `private_key` can be specified".to_string(),
-            }),
+            (Some(_), Some(_)) => Err(invalid_key!(
+                None,
+                "only one of `mnemonic` and `private_key` can be specified"
+            )),
             (Some(m), _) => m
                 .as_str()
                 .map(|m| Secret::Mnemonic(m.to_string()))
-                .ok_or_else(|| ProfileParseError {
-                    key: Some("mnemonic"),
-                    cause: "value must be a string".to_string(),
-                }),
+                .ok_or_else(|| invalid_key!(Some("mnemonic"), "value must be a string")),
             (_, Some(k)) => k
                 .as_str()
                 .map(|k| Secret::Key(k.to_string()))
-                .ok_or_else(|| ProfileParseError {
-                    key: Some("profile"),
-                    cause: "value must be a string".to_string(),
-                }),
-            (None, None) => Err(ProfileParseError {
-                key: None,
-                cause: "one of `mnemonic` and `private_key` is required".to_string(),
-            }),
+                .ok_or_else(|| invalid_key!(Some("private_key"), "value must be a string")),
+            (None, None) => Err(invalid_key!(
+                None,
+                "one of `mnemonic` or `private_key` is required"
+            )),
         }?;
         Ok(Self {
             endpoint: tab
                 .get("endpoint")
                 .and_then(|ep| ep.as_str())
-                .ok_or_else(|| ProfileParseError {
-                    key: None,
-                    cause: "`endpoint` is required".to_string(),
-                })
+                .ok_or_else(|| invalid_key!(None, "`endpoint` is required"))
                 .and_then(|ep| {
-                    Url::parse(ep).map_err(|e: reqwest::UrlError| ProfileParseError {
-                        key: Some("endpoint"),
-                        cause: e.to_string(),
-                    })
+                    Url::parse(ep).map_err(|e: reqwest::UrlError| invalid_key!(Some("endpoint"), e))
                 })?,
             secret,
         })
-    }
-}
-
-pub struct ProfileParseError {
-    key: Option<&'static str>,
-    cause: String,
-}
-
-impl ProfileParseError {
-    fn into_error(self, profile_name: &str) -> failure::Error {
-        let subkey = match self.key {
-            Some(k) => format!(".{}", k),
-            None => "".to_string(),
-        };
-        format_err!(
-            "`profile.{}{}` is invalid: {}",
-            profile_name,
-            subkey,
-            self.cause
-        )
     }
 }
