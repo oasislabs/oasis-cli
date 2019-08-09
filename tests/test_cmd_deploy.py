@@ -1,12 +1,10 @@
 """Tests `oasis deploy`."""
 
-import os
 import os.path as osp
 from subprocess import PIPE
 
 
-
-def test_deploy_no_key(oenv, mock_tool):
+def test_deploy_no_key(oenv):
     app_dir = osp.join(oenv.create_project(), 'app')
     cp = oenv.run('oasis deploy', cwd=app_dir, stdout=PIPE, check=False)
     assert 'https://dashboard.oasiscloud.io' in cp.stdout

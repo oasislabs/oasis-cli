@@ -109,6 +109,7 @@ class MockTool:
         return self.mock_tool.replace('$user_script', user_script)
 
     def create_at(self, path):
+        """Creates an executable mock tool at the provied location."""
         shutil.copy(self.mock_tool_path, path)
 
     @staticmethod

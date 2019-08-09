@@ -1,6 +1,5 @@
 """Tests `oasis test`."""
 
-import os
 import os.path as osp
 from subprocess import PIPE
 
