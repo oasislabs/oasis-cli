@@ -137,7 +137,7 @@ fn deploy_js(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_cmd_with_env("npm", &npm_args, npm_envs, opts.verbosity) {
+    if let Err(e) = run_cmd_with_env("npm", npm_args, npm_envs, opts.verbosity) {
         emit!(cmd.deploy.error);
         return Err(e);
     }

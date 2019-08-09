@@ -113,7 +113,7 @@ fn build_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_cmd_with_env("cargo", &cargo_args, cargo_envs, opts.verbosity) {
+    if let Err(e) = run_cmd_with_env("cargo", cargo_args, cargo_envs, opts.verbosity) {
         emit!(cmd.build.error);
         return Err(e);
     };
@@ -301,7 +301,7 @@ fn build_js(
 
     run_cmd(
         &"npm",
-        &[
+        vec![
             "run-script",
             "--prefix",
             package_dir.to_str().unwrap(),
