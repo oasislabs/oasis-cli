@@ -1,7 +1,7 @@
 use std::{ffi::OsString, path::Path};
 
 use crate::{
-    command::{run_cmd, run_cmd_with_env, Verbosity},
+    command::{run_cmd_with_env, Verbosity},
     config::Config,
     emit,
     utils::{detect_projects, print_status_in, ProjectKind, Status},
@@ -17,9 +17,9 @@ pub struct TestOptions<'a> {
 
 impl<'a> TestOptions<'a> {
     pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, failure::Error> {
-        let profile = m.value_of("profile").unwrap();
-        if let Err(e) = config.profile(profile) {
-            return Err(e);
+        let profile_name = m.value_of("profile").unwrap();
+        if let Err(e) = config.profile(profile_name) {
+            return Err(e.into());
         }
         Ok(Self {
             debug: m.is_present("debug"),
@@ -27,7 +27,7 @@ impl<'a> TestOptions<'a> {
                 .values_of("SERVICE")
                 .unwrap_or_default()
                 .collect::<Vec<&str>>(),
-            profile,
+            profile: profile_name,
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
             ),
@@ -91,7 +91,7 @@ fn test_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_cmd_with_env("cargo", cargo_args, opts.verbosity, cargo_envs) {
+    if let Err(e) = run_cmd_with_env("cargo", &cargo_args, cargo_envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     };
@@ -157,19 +157,6 @@ fn test_js(
         "tester_args": opts.tester_args,
     });
 
-    if !package_dir.join("node_modules").is_dir() {
-        let npm_args = &[
-            "install",
-            "--prefix",
-            package_dir.to_str().unwrap(),
-            "--quiet",
-        ];
-        if let Err(e) = run_cmd("npm", npm_args, opts.verbosity) {
-            emit!(cmd.test.error, { "cause": "npm install" });
-            return Err(e);
-        }
-    }
-
     let mut npm_args = vec!["test", "--prefix", package_dir.to_str().unwrap(), "--"];
     if opts.verbosity < Verbosity::Normal {
         npm_args.push("--silent");
@@ -183,7 +170,7 @@ fn test_js(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_cmd_with_env("npm", npm_args, opts.verbosity, npm_envs) {
+    if let Err(e) = run_cmd_with_env("npm", &npm_args, npm_envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     }

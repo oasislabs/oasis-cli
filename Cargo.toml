@@ -38,7 +38,6 @@ toml_edit = "0.1"
 uuid = "0.7"
 walrus = "0.10"
 walkdir = "2.2"
-webbrowser = "0.5"
 xml-rs = "0.8"
 
 [build-dependencies]

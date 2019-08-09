@@ -82,12 +82,12 @@ fn main() {
         )
         (@subcommand test =>
             (about: "Run tests against a simulated Oasis runtime")
-            (@arg debug: --debug "Build without optimizations")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
+            (@arg debug: --debug "Build without optimizations")
             (@arg profile: -p --profile default_value[local]
                 "Set testing profile. Run `oasis config profile` \nto list available profiles.")
-            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
-            (@arg SERVICE: +multiple "Specify which service(s) to build")
+            (@arg SERVICE: +multiple "Specify which service(s) to test")
             (@arg tester_args: +raw "Args to pass to language-specific test tool")
         )
         (@subcommand clean => (about: "Remove build products"))
@@ -103,15 +103,22 @@ fn main() {
             (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
         )
         (@subcommand deploy =>
-            (about: "Deploy a service to the Oasis blockchain")
+            (about: "Deploy services to the Oasis blockchain")
+            (@arg verbose: +multiple -v --verbose "Increase verbosity")
+            (@arg quiet: +multiple -q --quiet "Decrease verbosity")
+            (@arg profile: -p --profile default_value[default]
+                "Set testing profile. Run `oasis config profile` \nto list available profiles.")
+            (@arg deployer_args: +raw "Args to pass to language-specific deployment tool")
         )
         (@subcommand upload_metrics => (@setting Hidden))
         (@subcommand config =>
+            (about: "View and edit configuration options")
             (@arg KEY: +required "The configuration key to set")
             (@arg VALUE: "The new configuration value")
         )
     )
     .subcommand(
+        // this is here because the macro doesn't support "-" in names
         clap::SubCommand::with_name("set-toolchain")
             .about("Set the Oasis toolchain version")
             .after_help(help::SET_TOOLCHAIN)
@@ -154,7 +161,7 @@ fn main() {
             m.value_of("SERVICE_URL").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
-        ("deploy", Some(_)) => deploy(),
+        ("deploy", Some(m)) => DeployOptions::new(&m, &config).exec(),
         ("config", Some(m)) => {
             let key = m.value_of("KEY").unwrap();
             match m.value_of("VALUE") {
