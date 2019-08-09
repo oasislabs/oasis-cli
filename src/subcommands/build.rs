@@ -301,12 +301,7 @@ fn build_js(
 
     run_cmd(
         &"npm",
-        vec![
-            "run-script",
-            "--prefix",
-            package_dir.to_str().unwrap(),
-            "build",
-        ],
+        vec!["run", "--prefix", package_dir.to_str().unwrap(), "build"],
         opts.verbosity,
     )?;
 

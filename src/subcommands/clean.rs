@@ -24,7 +24,7 @@ pub fn clean() -> Result<(), failure::Error> {
                 run_cmd(
                     "npm",
                     vec![
-                        "run-script",
+                        "run",
                         "--prefix",
                         proj.manifest_path.parent().unwrap().to_str().unwrap(),
                         "clean",

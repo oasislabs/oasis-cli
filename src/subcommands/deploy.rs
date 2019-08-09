@@ -119,7 +119,7 @@ fn deploy_js(
     });
 
     let mut npm_args = vec![
-        "run-script",
+        "run",
         "deploy",
         "--prefix",
         package_dir.to_str().unwrap(),
