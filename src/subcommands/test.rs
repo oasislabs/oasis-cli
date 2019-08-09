@@ -91,7 +91,7 @@ fn test_rust(
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_cmd_with_env("cargo", cargo_args, cargo_envs, opts.verbosity) {
+    if let Err(e) = run_cmd_with_env("cargo", &cargo_args, cargo_envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     };
@@ -170,7 +170,7 @@ fn test_js(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_cmd_with_env("npm", npm_args, npm_envs, opts.verbosity) {
+    if let Err(e) = run_cmd_with_env("npm", &npm_args, npm_envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     }

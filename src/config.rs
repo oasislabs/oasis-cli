@@ -24,8 +24,7 @@ macro_rules! default_gateway_url {
 
 pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
 #[rustfmt::skip]
-static DEFAULT_CONFIG_TOML: &str = concat!(r#"
-[profile.default]
+static DEFAULT_CONFIG_TOML: &str = concat!(r#"[profile.default]
 endpoint = ""#, default_gateway_url!(), r#""
 
 [profile.local]

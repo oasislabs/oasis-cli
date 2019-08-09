@@ -15,6 +15,8 @@ def test_profile_option(oenv, mock_tool):
 
     app_dir = osp.join(oenv.create_project(), 'app')
 
+    oenv.run('oasis config profile.default.private_key ""')
+
     cp = oenv.run('oasis test', cwd=app_dir, stdout=PIPE)
     assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'local'
 
