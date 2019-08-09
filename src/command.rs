@@ -2,6 +2,8 @@ use std::{collections::HashMap, ffi::OsString, io, path::Path, process::Stdio};
 
 use crate::{emit, error::Error};
 
+const CARGO_RUST_VERSION: &str = "+nightly-2019-08-01";
+
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
     Silent,
@@ -41,17 +43,13 @@ macro_rules! cmd {
     }}
 }
 
-pub fn run_cmd(
-    name: &'static str,
-    args: &[&str],
-    verbosity: Verbosity,
-) -> Result<(), failure::Error> {
+pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<(), failure::Error> {
     run_cmd_internal(name, args, None, verbosity, true)
 }
 
 pub fn run_cmd_with_env(
-    name: &'static str,
-    args: &[&str],
+    name: &str,
+    args: Vec<&str>,
     envs: HashMap<OsString, OsString>,
     verbosity: Verbosity,
 ) -> Result<(), failure::Error> {
@@ -59,8 +57,8 @@ pub fn run_cmd_with_env(
 }
 
 fn run_cmd_internal(
-    name: &'static str,
-    args: &[&str],
+    name: &str,
+    mut args: Vec<&str>,
     envs: Option<HashMap<OsString, OsString>>,
     verbosity: Verbosity,
     allow_hook: bool,
@@ -70,7 +68,7 @@ fn run_cmd_internal(
         _ => (Stdio::inherit(), Stdio::inherit()),
     };
     let mut cmd = std::process::Command::new(if allow_hook {
-        hook_cmd(name, &args, verbosity)?
+        hook_cmd(name, &mut args, verbosity)?
     } else {
         name.to_string()
     });
@@ -92,34 +90,45 @@ fn run_cmd_internal(
 }
 
 fn hook_cmd(
-    name: &'static str,
-    args: &[&str],
+    name: &str,
+    args: &mut Vec<&str>,
     verbosity: Verbosity,
 ) -> Result<String, failure::Error> {
-    Ok(if name == "npm" {
-        let name = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
-        let package_dir = Path::new(
-            args.iter()
-                .position(|a| *a == "--prefix")
-                .map(|p| args[p + 1])
-                .unwrap_or(""),
-        );
-        npm_install_if_needed(&package_dir, verbosity)?;
-        name
-    } else {
-        name.to_string()
+    Ok(match name {
+        "npm" => {
+            let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
+            let package_dir = Path::new(
+                args.iter()
+                    .position(|a| *a == "--prefix")
+                    .map(|p| args[p + 1])
+                    .unwrap_or(""),
+            );
+            npm_install_if_needed(&npm, &package_dir, verbosity)?;
+            npm
+        }
+        "cargo" => {
+            if !args.get(0).unwrap_or(&"").starts_with('+') {
+                args.insert(0, CARGO_RUST_VERSION)
+            }
+            name.to_string()
+        }
+        _ => name.to_string(),
     })
 }
 
-fn npm_install_if_needed(package_dir: &Path, verbosity: Verbosity) -> Result<(), failure::Error> {
+fn npm_install_if_needed<'a>(
+    npm_command: &'a str,
+    package_dir: &'a Path,
+    verbosity: Verbosity,
+) -> Result<(), failure::Error> {
     if !package_dir.join("node_modules").is_dir() {
-        let npm_args = &[
+        let npm_args = vec![
             "install",
             "--prefix",
             package_dir.to_str().unwrap(),
             "--quiet",
         ];
-        if let Err(e) = run_cmd_internal("npm", npm_args, None, verbosity, false) {
+        if let Err(e) = run_cmd_internal(npm_command, npm_args, None, verbosity, false) {
             emit!(cmd.build.error, { "cause": "npm install" });
             return Err(e);
         }

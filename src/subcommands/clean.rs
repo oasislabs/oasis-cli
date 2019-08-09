@@ -11,7 +11,7 @@ pub fn clean() -> Result<(), failure::Error> {
                 emit!(cmd.clean, "rust");
                 run_cmd(
                     "cargo",
-                    &[
+                    vec![
                         "clean",
                         "--manifest-path",
                         proj.manifest_path.to_str().unwrap(),
@@ -23,8 +23,8 @@ pub fn clean() -> Result<(), failure::Error> {
                 emit!(cmd.clean, "javascript");
                 run_cmd(
                     "npm",
-                    &[
-                        "run-script",
+                    vec![
+                        "run",
                         "--prefix",
                         proj.manifest_path.parent().unwrap().to_str().unwrap(),
                         "clean",
