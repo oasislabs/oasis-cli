@@ -96,11 +96,15 @@ fn hook_cmd(
     args: &[&str],
     verbosity: Verbosity,
 ) -> Result<String, failure::Error> {
-    let args = args.into_iter().collect::<Vec<_>>();
     Ok(if name == "npm" {
         let name = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
-        let package_dir = &args[args.iter().position(|a| **a == "--prefix").unwrap() + 1];
-        npm_install_if_needed(&Path::new(package_dir), verbosity)?;
+        let package_dir = Path::new(
+            args.iter()
+                .position(|a| *a == "--prefix")
+                .map(|p| args[p + 1])
+                .unwrap_or(""),
+        );
+        npm_install_if_needed(&package_dir, verbosity)?;
         name
     } else {
         name.to_string()
