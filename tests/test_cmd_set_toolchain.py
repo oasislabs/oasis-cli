@@ -27,7 +27,7 @@ def tools_proxy():
 
 def test_set_toolchain_latest_unstable(oenv, tools_proxy, mock_tool):
     env = {'http_proxy': tools_proxy}
-    oenv.run('oasis set-toolchain latest-unstable', input='', env=env)
+    oenv.run('oasis set-toolchain unstable', input='', env=env)
     cp = oenv.run('oasis-chain', stdout=PIPE)
     print(cp)
     invocation = mock_tool.parse_output(cp.stdout)[0]

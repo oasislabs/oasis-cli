@@ -143,7 +143,7 @@ impl FromStr for ReleaseVersion {
     fn from_str(version: &str) -> Result<Self, Self::Err> {
         Ok(match version {
             "latest" => ReleaseVersion::Latest,
-            "latest-unstable" => ReleaseVersion::Unstable,
+            "unstable" => ReleaseVersion::Unstable,
             _ => match version.split('.').collect::<Vec<_>>().as_slice() {
                 [year, week] => {
                     let year = u8::from_str(year).unwrap_or(0);
@@ -402,7 +402,7 @@ mod tests {
             ReleaseVersion::Latest
         );
         assert_eq!(
-            ReleaseVersion::from_str("latest-unstable").unwrap(),
+            ReleaseVersion::from_str("unstable").unwrap(),
             ReleaseVersion::Unstable
         );
         assert_eq!(
