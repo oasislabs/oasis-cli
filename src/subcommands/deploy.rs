@@ -45,12 +45,12 @@ impl<'a> DeployOptions<'a> {
         match config.profile(profile_name) {
             Ok(_) => (),
             Err(ProfileError {
-                kind: ProfileErrorKind::Invalid { key, .. },
+                kind: ProfileErrorKind::InvalidKey(key, _),
                 ..
-            }) if key.map(|k| k != "endpoint").unwrap_or(true)
+            }) if key == "gateway"
                 && config
                     .profile_raw(profile_name)
-                    .and_then(|t| t.get("endpoint"))
+                    .and_then(|t| t.get("gateway"))
                     .and_then(|ep| ep.as_str())
                     .map(|ep| ep == DEFAULT_GATEWAY_URL)
                     .unwrap_or_default() =>

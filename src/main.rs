@@ -36,25 +36,9 @@ fn main() {
     let mut versions = String::with_capacity(100);
     versions.push_str(crate_version!());
     if let Ok(r) = toolchain::installed_release() {
-        use crate::toolchain::Tool;
-        let (this_tool, other_tools): (Vec<&Tool>, Vec<&Tool>) =
-            r.tools().partition(|t| t.name() == "oasis");
-        if let Some(oasis) = this_tool.get(0) {
-            versions.push_str(" (");
-            versions.push_str(oasis.ver());
-            versions.push_str(")");
-        }
-        if !other_tools.is_empty() {
-            for t in other_tools {
-                versions.push('\n');
-                versions.push_str(t.name());
-                versions.push_str(" (");
-                versions.push_str(t.ver());
-                versions.push_str(")");
-            }
-        }
-        versions.push_str("\ntoolchain: ");
+        versions.push_str(" (toolchain ");
         versions.push_str(r.name());
+        versions.push_str(")\n");
     }
 
     let mut app = clap_app!(oasis =>

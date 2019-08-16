@@ -177,10 +177,6 @@ impl Release {
         &self.name
     }
 
-    pub fn tools(&self) -> impl Iterator<Item = &Tool> {
-        self.tools.iter()
-    }
-
     fn for_version(version: ReleaseVersion, tools_manifest: impl Read) -> Option<Release> {
         use xml::reader::{EventReader, XmlEvent};
 
@@ -251,16 +247,6 @@ pub struct Tool {
     ver: String,
     name_ver: String,
     s3_key: String,
-}
-
-impl Tool {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn ver(&self) -> &str {
-        &self.ver
-    }
 }
 
 impl PartialEq for Tool {
