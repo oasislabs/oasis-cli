@@ -297,13 +297,28 @@ impl From<Telemetry> for toml_edit::Table {
 }
 
 pub struct Profile {
-    pub endpoint: Url,
-    pub secret: Secret,
+    pub gateway: Url,
+    pub credential: Credential,
 }
 
-pub enum Secret {
+pub enum Credential {
     Mnemonic(String),
-    Key(String),
+    PrivateKey(String),
+    ApiToken(String),
+}
+
+impl FromStr for Credential {
+    type Err = failure::Error;
+
+    fn from_str(s: &str) -> Self {
+        if s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+            PrivateKey(s.to_string())
+        } else if 
+        if let s.split(' ').count() == 12 {
+            Credential::Mnemonic(s.to_string())
+        } else
+        match 
+    }
 }
 
 impl Profile {
