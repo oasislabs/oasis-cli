@@ -21,24 +21,46 @@ macro_rules! default_gateway_url {
         "wss://web3.devnet.oasiscloud.io/ws"
     };
 }
-
 pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
-#[rustfmt::skip]
-static DEFAULT_CONFIG_TOML: &str = concat!(r#"[profile.default]
-endpoint = ""#, default_gateway_url!(), r#""
+
+macro_rules! unknown_profile_config {
+    ($key:expr) => {
+        format_err!(
+            r#"unknown configuration option: `{}`.
+Valid options are:
+
+    gateway      URL of the developer or Web3  gateway used for testing/deployment.
+
+    credential   The API token or private key/mnemonic used to authenticate to the
+                 developer or Web3 gateway, respectively.
+"#,
+            $key
+        )
+    };
+}
+
+macro_rules! default_config_toml {
+    () => {
+        concat!(
+            r#"[profile.default]
+endpoint = ""#,
+            default_gateway_url!(),
+            r#""
 
 [profile.local]
-mnemonic = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
-endpoint = "ws://localhost:8546"
+gateway = "ws://localhost:8546"  # web3
+credential = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
 
 [telemetry]
-enabled = false
-"#);
+enabled = false"#
+        )
+    };
+}
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            doc: toml_edit::Document::from_str(DEFAULT_CONFIG_TOML).unwrap(),
+            doc: toml_edit::Document::from_str(default_config_toml!()).unwrap(),
         }
     }
 }
@@ -114,20 +136,8 @@ impl Config {
                     _ => return Err(format_err!("No profile named `{}`", profile_name)),
                 };
                 match *key {
-                    "mnemonic" => {
-                        profile.remove("private_key");
-                    }
-                    "private_key" => {
-                        profile.remove("mnemonic");
-                    }
-                    "endpoint" => (),
-                    _ => {
-                        return Err(format_err!(
-                            "unknown configuration option: `{}`. \
-                             Valid options are `mnemonic`, `private_key`, and `endpoint`.",
-                            key
-                        ))
-                    }
+                    "credential" | "gateway" => {}
+                    _ => return Err(unknown_profile_config!(key)),
                 }
                 *profile.entry(key) = toml_edit::value(value);
             }
@@ -322,6 +332,8 @@ impl Profile {
                 })
             }
         };
+        let secret = tab.get("credential")
+            .
         let secret = match (tab.get("mnemonic"), tab.get("private_key")) {
             (Some(_), Some(_)) => Err(invalid_key!(
                 None,
@@ -342,11 +354,11 @@ impl Profile {
         }?;
         Ok(Self {
             endpoint: tab
-                .get("endpoint")
+                .get("gateway")
                 .and_then(|ep| ep.as_str())
-                .ok_or_else(|| invalid_key!(None, "`endpoint` is required"))
+                .ok_or_else(|| invalid_key!(None, "`gateway` is required"))
                 .and_then(|ep| {
-                    Url::parse(ep).map_err(|e: reqwest::UrlError| invalid_key!(Some("endpoint"), e))
+                    Url::parse(ep).map_err(|e: reqwest::UrlError| invalid_key!(Some("gateway"), e))
                 })?,
             secret,
         })

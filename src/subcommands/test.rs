@@ -59,7 +59,7 @@ fn test_rust(
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path)?;
 
-    let product_names = if opts.services.is_empty() {
+    let mut product_names = if opts.services.is_empty() {
         manifest
             .bin
             .iter()
@@ -68,6 +68,7 @@ fn test_rust(
     } else {
         opts.services.clone()
     };
+    product_names.sort();
     let num_products = product_names.len();
 
     let mut cargo_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
