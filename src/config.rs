@@ -405,8 +405,7 @@ impl FromStr for Credential {
         if let Ok(key_bytes) = hex::decode(s) {
             if key_bytes.len() == PRIVATE_KEY_BYTES {
                 return Ok(Credential::PrivateKey(s.to_string()));
-            }
-            return Ok(Credential::PrivateKey(hex::encode(s)));
+            };
         } else if s.split(' ').count() == MNEMONIC_PHRASE_LEN {
             return Ok(Credential::Mnemonic(s.to_lowercase()));
         } else if let Ok(tok_bytes) = base64::decode(s) {
@@ -444,18 +443,19 @@ impl Profile {
             };
         }
 
-        let tab = match profile_tab {
+        let profile = match profile_tab {
             Some(tab) => tab,
             None => return Err(err!(missing)),
         };
         Ok(Self {
-            gateway: tab
+            gateway: profile
                 .get("gateway")
                 .and_then(|ep| ep.as_str())
                 .ok_or_else(|| err!("gateway", missing))
-                .and_then(|ep| Url::parse(ep).map_err(|e: reqwest::UrlError| err!("gateway", e)))?,
+                .and_then(|ep| Url::parse(ep).map_err(|e| err!("gateway", e)))?,
             credential: Credential::from_str(
-                tab.get("credential")
+                profile
+                    .get("credential")
                     .and_then(|c| c.as_str())
                     .ok_or_else(|| err!("credential", missing))?,
             )
