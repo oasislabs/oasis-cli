@@ -161,14 +161,15 @@ impl Config {
                         extra_comp
                     ));
                 }
-                let value = match profile_key {
-                    Some("credential") => Credential::from_str(value)
+                let value = Self::read_value(value);
+                let canon_value = match profile_key {
+                    Some("credential") => Credential::from_str(&value)
                         .map_err(|e| ProfileError {
                             name: profile_name.to_string(),
                             kind: ProfileErrorKind::InvalidKey("credential", e.to_string()),
                         })?
                         .to_string(),
-                    Some("gateway") => Url::parse(value)
+                    Some("gateway") => Url::parse(&value)
                         .map_err(|e| ProfileError {
                             name: profile_name.to_string(),
                             kind: ProfileErrorKind::InvalidKey("gateway", e.to_string()),
@@ -189,7 +190,7 @@ impl Config {
                         ));
                     }
                 };
-                *profile.entry(profile_key.unwrap()) = toml_edit::value(value);
+                *profile.entry(profile_key.unwrap()) = toml_edit::value(canon_value);
             }
             Some("telemetry") => {
                 let telemetry_key = key_comps.next();
@@ -312,6 +313,17 @@ impl Config {
             .as_table_mut()
             .unwrap()
             .entry("enabled") = toml_edit::value(enabled);
+    }
+
+    fn read_value(value: &str) -> String {
+        if value == "-" {
+            let mut value = String::new();
+            std::io::stdin().read_line(&mut value).unwrap_or_default();
+            value.pop(); // remove the '\n', if any
+            value
+        } else {
+            value.to_string()
+        }
     }
 }
 
