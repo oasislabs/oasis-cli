@@ -8,6 +8,7 @@ use crate::{error::Error, oasis_dir, utils};
 const OASIS_GENESIS_YEAR: u8 = 19;
 const WEEKS_IN_YEAR: u8 = 54;
 const INSTALLED_RELEASE_FILE: &str = "installed_release";
+const TOOLS_URL: &str = "https://tools.oasis.dev";
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
@@ -309,31 +310,18 @@ impl<'de> serde::Deserialize<'de> for Tool {
     }
 }
 
-/// `ToolsClient` is an abstraction over a `reqwest::Client` that respects the system proxy.
-/// Also has testing stubs, where necessary.
-struct ToolsClient {
-    client: reqwest::Client,
-    url: reqwest::Url,
-}
+struct ToolsClient(utils::http::Client);
 
 impl ToolsClient {
-    #[cfg(debug_assertions)]
-    const TOOLS_URL: &'static str = "http://tools.oasis.dev";
-    #[cfg(not(debug_assertions))]
-    const TOOLS_URL: &'static str = "https://tools.oasis.dev";
-
-    fn new() -> Result<Self, failure::Error> {
-        Ok(Self {
-            client: utils::get_http_client()?,
-            url: reqwest::Url::parse(Self::TOOLS_URL).unwrap(),
-        })
+    fn new() -> Result<Self, reqwest::Error> {
+        Ok(Self(utils::http::ClientBuilder::new(TOOLS_URL).build()?))
     }
 
     #[cfg(not(test))]
     fn fetch_manifest(&self) -> Result<impl Read, failure::Error> {
         Ok(self
-            .client
-            .get(self.url.clone())
+            .0
+            .get("")
             .send()
             .map_err(|e| failure::format_err!("could not fetch releases: {}", e))?)
     }
@@ -359,7 +347,7 @@ impl ToolsClient {
         if out_path.exists() {
             return Ok(());
         }
-        let mut res = self.client.get(self.url.join(&tool.s3_key)?).send()?;
+        let mut res = self.0.get(&tool.s3_key).send()?;
         let mut f = fs::OpenOptions::new()
             .create(true)
             .write(true)

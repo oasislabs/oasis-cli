@@ -96,7 +96,7 @@ pub fn gen_completions() -> Result<(), failure::Error> {
         )?
         .stdout,
     )?;
-    let (shell, completions_file) = if dbg!(shell_str).contains("zsh") {
+    let (shell, completions_file) = if shell_str.contains("zsh") {
         (clap::Shell::Zsh, "_oasis")
     } else {
         (clap::Shell::Bash, "completions.sh")

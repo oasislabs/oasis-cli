@@ -29,9 +29,10 @@ def oenv(request):
             self.home_dir = home_dir
             self.config_dir = osp.join(user_config_dir, 'oasis')
             self.data_dir = osp.join(user_data_dir, 'oasis')
-
             self.bin_dir = osp.join(osp.dirname(user_data_dir), 'bin')
+
             os.makedirs(self.bin_dir, exist_ok=True)
+            os.makedirs(self.data_dir, exist_ok=True)
 
             self.config_file = osp.join(self.config_dir, 'config.toml')
             self.metrics_file = osp.join(self.data_dir, 'metrics.jsonl')
