@@ -34,7 +34,7 @@ def main():
             print(port, flush=True)
             server.serve_forever()
         except OSError as err:
-            if err.errno == 48:  # eaddr
+            if err.errno == 48 or err.errno == 98:  # eaddr
                 port += 1
             else:
                 raise err
