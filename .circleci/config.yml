@@ -25,7 +25,7 @@ jobs:
             pylint *.py
       - run: cargo build
       - run: cargo test
-      - run: pytest tests/
+      - run: pytest -n 8 --tb line tests/
 
   clippy:
     executor: rust
