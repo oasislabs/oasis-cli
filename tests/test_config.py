@@ -12,10 +12,8 @@ def test_firstrun_dialog(oenv):
     cp = oenv.run('oasis', input='', stdout=PIPE)
     assert cp.stdout.split('\n', 1)[0] == 'Welcome to the Oasis Development Environment!'
 
-    assert osp.isfile(oenv.config_file)
-    assert not oenv.load_config()['telemetry']['enabled']
-    with open(oenv.config_file) as f_cfg:
-        assert f_cfg.read().find('[telemetry]\nenabled = false') != -1
+    cp = oenv.run('oasis config telemetry.enabled', stdout=PIPE)
+    assert cp.stdout.rstrip() == 'false'
 
 
 def test_firstrun_skip_dialog(oenv):
@@ -40,9 +38,6 @@ def test_telemetry_enabled(oenv):
 
     oenv.run('oasis init test')
     assert osp.isfile(oenv.metrics_file)
-
-    oenv.run('oasis config telemetry.enabled false')
-    assert not oenv.load_config()['telemetry']['enabled']
 
 
 def test_edit_invalid_key(oenv):

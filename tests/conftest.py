@@ -10,7 +10,6 @@ from subprocess import DEVNULL
 import tempfile
 
 import pytest
-import toml
 
 PROJ_ROOT = osp.abspath(osp.join(osp.dirname(__file__), '..'))
 TARGET_DIR = osp.join(PROJ_ROOT, 'target', 'debug')
@@ -47,10 +46,6 @@ def oenv(request):
             })
 
             self._configured = False
-
-        def load_config(self):
-            with open(self.config_file) as f_config:
-                return toml.load(f_config)
 
         def run(self, cmd, env=None, input='', **kwargs):  # pylint:disable=redefined-builtin
             if not self._configured:

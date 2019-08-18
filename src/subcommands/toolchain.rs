@@ -324,7 +324,7 @@ impl ToolsClient {
 
     fn new() -> Result<Self, failure::Error> {
         Ok(Self {
-            client: reqwest::Client::builder().use_sys_proxy().build()?,
+            client: utils::get_http_client()?,
             url: reqwest::Url::parse(Self::TOOLS_URL).unwrap(),
         })
     }
