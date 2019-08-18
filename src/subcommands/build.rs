@@ -190,7 +190,6 @@ fn get_cargo_args<'a>(
     }
 
     if !opts.builder_args.is_empty() {
-        cargo_args.push("--");
         cargo_args.extend(opts.builder_args.iter());
     }
     cargo_args.push("--manifest-path");

@@ -45,7 +45,7 @@ macro_rules! default_config_toml {
     () => {
         concat!(
             r#"[profile.default]
-endpoint = ""#,
+gateway = ""#,
             default_gateway_url!(),
             r#""
 
@@ -99,7 +99,7 @@ impl Config {
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
-        use toml_edit::Item;
+        use toml_edit::{Item, Value};
 
         emit!(cmd.config.get, { "key": key });
 
@@ -112,7 +112,15 @@ impl Config {
         }
 
         Some(match itm {
-            Item::Value(v) => v.to_string(),
+            Item::Value(v) => match &v {
+                Value::Integer(repr) => repr.value().to_string(),
+                Value::String(repr) => repr.value().to_string(),
+                Value::Float(repr) => repr.value().to_string(),
+                Value::Boolean(repr) => repr.value().to_string(),
+                Value::DateTime(repr) => repr.value().to_string(),
+                Value::Array(array) => array.to_string(),
+                Value::InlineTable(table) => table.to_string(),
+            },
             Item::Table(t) => t.to_string(),
             Item::ArrayOfTables(ts) => ts
                 .iter()
@@ -169,7 +177,7 @@ impl Config {
                             kind: ProfileErrorKind::InvalidKey("credential", e.to_string()),
                         })?
                         .to_string(),
-                    Some("gateway") => Url::parse(&value)
+                    Some("gateway") => parse_gateway_url(&value)
                         .map_err(|e| ProfileError {
                             name: profile_name.to_string(),
                             kind: ProfileErrorKind::InvalidKey("gateway", e.to_string()),
@@ -450,9 +458,9 @@ impl Profile {
         Ok(Self {
             gateway: profile
                 .get("gateway")
-                .and_then(|ep| ep.as_str())
+                .and_then(|gw| gw.as_str())
                 .ok_or_else(|| err!("gateway", missing))
-                .and_then(|ep| Url::parse(ep).map_err(|e| err!("gateway", e)))?,
+                .and_then(|gw| parse_gateway_url(gw).map_err(|e| err!("gateway", e)))?,
             credential: Credential::from_str(
                 profile
                     .get("credential")
@@ -462,4 +470,22 @@ impl Profile {
             .map_err(|e| err!("credential", e))?,
         })
     }
+}
+
+fn parse_gateway_url(url_str: &str) -> Result<Url, failure::Error> {
+    let url = Url::parse(url_str)?;
+    if !url.has_host() {
+        return Err(format_err!("URL must specify a domain"));
+    }
+    match url.scheme() {
+        "ws" | "wss" | "http" | "https" => {}
+        scheme => {
+            return Err(format_err!(
+                "invalid URL scheme `{}`. Must be http(s) or ws(s).",
+                scheme
+            ));
+        }
+    }
+
+    Ok(url)
 }
