@@ -74,6 +74,8 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
     )
     .ok(); // This isn't catastropic. We'll just have to re-download later.
 
+    crate::cmd!("oasis", "gen_completions").ok();
+
     Ok(())
 }
 
