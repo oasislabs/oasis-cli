@@ -60,6 +60,7 @@ def test_edit_credential(oenv):
         oenv.run(f'oasis config profile.default.credential "{credential}"')
         cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
         assert cp.stdout.rstrip() == credential
+
     _roundtrip(SAMPLE_KEY)
     _roundtrip(SAMPLE_MNEMONIC)
     _roundtrip(SAMPLE_TOKEN)
@@ -71,13 +72,9 @@ def test_edit_credential_invalid(oenv):
 
 
 def test_edit_from_stdin(oenv):
-    def _roundtrip(credential):
-        oenv.run(f'oasis config profile.default.credential -', input=f'{credential}\n')
-        cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
-        assert cp.stdout.rstrip() == credential
-    _roundtrip(SAMPLE_KEY)
-    _roundtrip(SAMPLE_MNEMONIC)
-    _roundtrip(SAMPLE_TOKEN)
+    oenv.run(f'oasis config profile.default.credential -', input=f'{SAMPLE_MNEMONIC}\n')
+    cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
+    assert cp.stdout.rstrip() == SAMPLE_MNEMONIC
 
 
 def test_edit_gateway(oenv):
