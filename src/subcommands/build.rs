@@ -49,28 +49,30 @@ impl<'a> super::ExecSubcommand for BuildOptions<'a> {
 }
 
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    match detect_projects()?.as_slice() {
-        [] => match opts.services.as_slice() {
-            [svc] if svc.ends_with(".wasm") || svc == "a.out" => {
-                let out_file = Path::new(svc).with_extension("wasm");
-                prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
+    if !opts.services.is_empty()
+        && opts
+            .services
+            .iter()
+            .all(|svc| svc.ends_with(".wasm") || svc == "a.out")
+    {
+        print_status(Status::Building, opts.services.join(", "));
+        for svc in opts.services.iter() {
+            let out_file = Path::new(svc).with_extension("wasm");
+            prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
+        }
+        return Ok(());
+    }
+    let projects = detect_projects()?;
+    if projects.is_empty() {
+        return Err(Error::DetectProject(format!("{}", std::env::current_dir()?.display())).into());
+    }
+    for proj in projects {
+        match &proj.kind {
+            ProjectKind::Rust(manifest) => {
+                build_rust(&opts, &proj.manifest_path, manifest)?;
             }
-            _ => {
-                return Err(
-                    Error::DetectProject(format!("{}", std::env::current_dir()?.display())).into(),
-                )
-            }
-        },
-        projects => {
-            for proj in projects {
-                match &proj.kind {
-                    ProjectKind::Rust(manifest) => {
-                        build_rust(&opts, &proj.manifest_path, manifest)?;
-                    }
-                    ProjectKind::Javascript(package_json) => {
-                        build_js(&opts, &proj.manifest_path, package_json)?;
-                    }
-                }
+            ProjectKind::Javascript(package_json) => {
+                build_js(&opts, &proj.manifest_path, package_json)?;
             }
         }
     }
