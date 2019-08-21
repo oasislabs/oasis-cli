@@ -88,20 +88,15 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn gen_completions() -> Result<(), failure::Error> {
-    let shell_str = String::from_utf8(
-        crate::cmd!(
-            "sh",
-            "-c",
-            format!("ps -p {} -oargs=", std::os::unix::process::parent_id())
-        )?
-        .stdout,
-    )?;
-    let (shell, completions_file) = if shell_str.contains("zsh") {
-        (clap::Shell::Zsh, "_oasis")
-    } else {
-        (clap::Shell::Bash, "completions.sh")
-        // ^ My sincerest apologies to the people who use non-`sh` compatible shells.
-    };
+    do_gen_completions(clap::Shell::Zsh, "_oasis")?;
+    do_gen_completions(clap::Shell::Bash, "completions.sh")?;
+    Ok(())
+}
+
+fn do_gen_completions(
+    shell: clap::Shell,
+    completions_file: &'static str,
+) -> Result<(), failure::Error> {
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
