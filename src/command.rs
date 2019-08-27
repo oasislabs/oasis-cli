@@ -2,7 +2,7 @@ use std::{collections::HashMap, ffi::OsString, io, path::Path, process::Stdio};
 
 use crate::{emit, error::Error};
 
-const CARGO_RUST_VERSION: &str = "+nightly-2019-08-01";
+const CARGO_RUST_VERSION: &str = "+nightly-2019-08-26";
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
