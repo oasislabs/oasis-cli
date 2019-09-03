@@ -73,7 +73,6 @@ fn main() {
         }
         ("set-toolchain", Some(m)) => toolchain::set(m.value_of("VERSION").unwrap()),
         ("upload_metrics", _) => telemetry::upload(),
-        ("gen_completions", _) => cli::gen_completions(),
         _ => {
             cli::build_app()
                 .write_long_help(&mut std::io::stdout())

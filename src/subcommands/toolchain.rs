@@ -26,6 +26,12 @@ pub fn installed_release() -> Result<Release, failure::Error> {
 }
 
 pub fn set(version: &str) -> Result<(), failure::Error> {
+    if version == "current" {
+        crate::cli::gen_completions()?;
+        crate::cmd!("rustup", "toolchain", "install", crate::rust_toolchain!())?;
+        return Ok(());
+    }
+
     let bin_dir = crate::ensure_dir!(bin)?;
     let cache_dir = oasis_dir!(cache)?;
 
@@ -75,7 +81,7 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
     )
     .ok(); // This isn't catastropic. We'll just have to re-download later.
 
-    crate::cmd!("oasis", "gen_completions").ok();
+    crate::cmd!("oasis", "set-toolchain current")?;
 
     Ok(())
 }
