@@ -120,6 +120,7 @@ fn deploy_js(
     let mut npm_args = vec![
         "run",
         "deploy",
+        "--if-present",
         "--prefix",
         package_dir.to_str().unwrap(),
         "--",
