@@ -86,7 +86,7 @@ fn build_rust(
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
 
-    let product_names = if opts.services.is_empty() {
+    let mut product_names = if opts.services.is_empty() {
         manifest
             .bin
             .iter()
@@ -95,6 +95,7 @@ fn build_rust(
     } else {
         opts.services.clone()
     };
+    product_names.sort();
     let num_products = product_names.len();
 
     let cargo_envs = get_cargo_envs(&opts)?;
@@ -137,7 +138,7 @@ fn build_rust(
         .map(|n| n + ".wasm")
         .collect::<Vec<_>>();
     if opts.verbosity > Verbosity::Quiet {
-        print_status(Status::Preparing, wasm_names.join(","));
+        print_status(Status::Preparing, wasm_names.join(", "));
     }
     for wasm_name in wasm_names {
         let wasm_file = wasm_dir.join(&wasm_name);
@@ -189,7 +190,6 @@ fn get_cargo_args<'a>(
     }
 
     if !opts.builder_args.is_empty() {
-        cargo_args.push("--");
         cargo_args.extend(opts.builder_args.iter());
     }
     cargo_args.push("--manifest-path");

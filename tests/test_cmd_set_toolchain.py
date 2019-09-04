@@ -29,7 +29,6 @@ def test_set_toolchain_latest_unstable(oenv, tools_proxy, mock_tool):
     env = {'http_proxy': tools_proxy}
     oenv.run('oasis set-toolchain unstable', input='', env=env)
     cp = oenv.run('oasis-chain', stdout=PIPE)
-    print(cp)
     invocation = mock_tool.parse_output(cp.stdout)[0]
     assert invocation['name'] == osp.join(oenv.bin_dir, 'oasis-chain')
     assert invocation['user'] == f'{sys.platform} current oasis-chain 1111111'

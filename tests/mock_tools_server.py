@@ -1,4 +1,4 @@
-"""An HTTP server that mocks https://tools.oasis.dev. Used by test_toolchain.py"""
+"""An HTTP server that mocks https://tools.oasis.dev. Used by test_cmd_set_toolchain.py."""
 
 import http.server
 from xml.etree import ElementTree as ET
@@ -49,7 +49,6 @@ class MockToolsHandler(http.server.BaseHTTPRequestHandler):
     """An HTTP server handler that mocks https://tools.oasis.dev"""
 
     URL = 'http://tools.oasis.dev'
-    protocol_version = 'HTTP/1.1'
 
     def do_GET(self):  # pylint:disable=invalid-name
         """Handles a GET request in a manner that similar to an s3 bucket.
@@ -111,7 +110,7 @@ def main():
             print(port, flush=True)
             server.serve_forever()
         except OSError as err:
-            if err.errno == 98:  # eaddr
+            if err.errno == 48 or err.errno == 98:  # eaddr
                 port += 1
             else:
                 raise err

@@ -4,16 +4,16 @@ import os.path as osp
 import re
 from subprocess import PIPE
 
+from .conftest import SAMPLE_KEY, SAMPLE_MNEMONIC, SAMPLE_TOKEN
+
 
 def test_firstrun_dialog(oenv):
     oenv.no_config()
     cp = oenv.run('oasis', input='', stdout=PIPE)
     assert cp.stdout.split('\n', 1)[0] == 'Welcome to the Oasis Development Environment!'
 
-    assert osp.isfile(oenv.config_file)
-    assert not oenv.load_config()['telemetry']['enabled']
-    with open(oenv.config_file) as f_cfg:
-        assert f_cfg.read().find('[telemetry]\nenabled = false') != -1
+    cp = oenv.run('oasis config telemetry.enabled', stdout=PIPE)
+    assert cp.stdout.rstrip() == 'false'
 
 
 def test_firstrun_skip_dialog(oenv):
@@ -39,13 +39,10 @@ def test_telemetry_enabled(oenv):
     oenv.run('oasis init test')
     assert osp.isfile(oenv.metrics_file)
 
-    oenv.run('oasis config telemetry.enabled false')
-    assert not oenv.load_config()['telemetry']['enabled']
-
 
 def test_edit_invalid_key(oenv):
     cp = oenv.run('oasis config profile.default.num_tokens 9001', stderr=PIPE, check=False)
-    assert 'unknown configuration option: `num_tokens`. Valid options are' in cp.stderr
+    assert 'unknown profile configuration key `num_tokens`' in cp.stderr
 
 
 def test_get_invalid_key(oenv):
@@ -53,27 +50,34 @@ def test_get_invalid_key(oenv):
     assert not cp.stdout
 
 
-def test_edit_secret(oenv):
-    """Tests that mnemonic/private_key can be set and are mutually exclusive."""
-    mnemonic = 'patient oppose cottion ...'
-    oenv.run(f'oasis config profile.default.mnemonic "{mnemonic}"')
-    assert oenv.load_config()['profile']['default']['mnemonic'] == mnemonic
+def test_edit_credential(oenv):
+    def _roundtrip(credential):
+        oenv.run(f'oasis config profile.default.credential "{credential}"')
+        cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
+        assert cp.stdout.rstrip() == credential
 
-    skey = 'p7PFqoZsBAUBxqTBv93DthnxrVkNt7sg'
-    oenv.run(f'oasis config profile.default.private_key "{skey}"')
-    updated = oenv.load_config()['profile']['default']
-    assert updated['private_key'] == skey
-    assert 'mnemonic' not in updated
-
-    oenv.run(f'oasis config profile.default.mnemonic "{mnemonic}"')
-    assert 'private_key' not in oenv.load_config()['profile']['default']
-    cp = oenv.run('oasis config profile.default.mnemonic', stdout=PIPE)
-    assert cp.stdout == f'"{mnemonic}"\n'
+    _roundtrip(SAMPLE_KEY)
+    _roundtrip(SAMPLE_MNEMONIC)
+    _roundtrip(SAMPLE_TOKEN)
 
 
-def test_edit_endpoint(oenv):
-    endpoint = 'wss://gateway.oasiscloud.io'
-    oenv.run(f'oasis config profile.local.endpoint "{endpoint}"')
-    assert oenv.load_config()['profile']['local']['endpoint'] == endpoint
-    cp = oenv.run('oasis config profile.local.endpoint', stdout=PIPE)
-    assert cp.stdout == f'"{endpoint}"\n'
+def test_edit_credential_invalid(oenv):
+    cp = oenv.run(f'oasis config profile.local.credential "abcdef"', check=False, stderr=PIPE)
+    assert 'invalid' in cp.stderr
+
+
+def test_edit_from_stdin(oenv):
+    oenv.run(f'oasis config profile.default.credential -', input=f'{SAMPLE_MNEMONIC}\n')
+    cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
+    assert cp.stdout.rstrip() == SAMPLE_MNEMONIC
+
+
+def test_edit_gateway(oenv):
+    gateway = 'ws://localhost:8546'
+    cp = oenv.run('oasis config profile.local.gateway', stdout=PIPE)
+    assert cp.stdout.rstrip() == gateway
+
+
+def test_edit_gateway_invalid(oenv):
+    cp = oenv.run(f'oasis config profile.default.gateway "not://a-url!"', check=False, stderr=PIPE)
+    assert 'invalid' in cp.stderr

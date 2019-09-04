@@ -2,7 +2,12 @@ use std::{collections::HashMap, ffi::OsString, io, path::Path, process::Stdio};
 
 use crate::{emit, error::Error};
 
-const CARGO_RUST_VERSION: &str = "+nightly-2019-08-26";
+#[macro_export]
+macro_rules! rust_toolchain {
+    () => {
+        "nightly-2019-08-26"
+    };
+}
 
 #[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub enum Verbosity {
@@ -36,7 +41,11 @@ macro_rules! cmd {
         $( cmd.arg($arg); )+
         let output = cmd.output()?;
         if !output.status.success() {
-            Err(failure::format_err!("{} exited with non-zero status code", $prog))
+            Err(failure::format_err!(
+                "{} exited with error:\n{}",
+                $prog,
+                String::from_utf8(output.stderr).unwrap()
+            ))
         } else {
             Ok(output)
         }
@@ -108,7 +117,7 @@ fn hook_cmd(
         }
         "cargo" => {
             if !args.get(0).unwrap_or(&"").starts_with('+') {
-                args.insert(0, CARGO_RUST_VERSION)
+                args.insert(0, concat!("+", rust_toolchain!()))
             }
             name.to_string()
         }

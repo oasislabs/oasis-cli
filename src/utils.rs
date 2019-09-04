@@ -129,6 +129,61 @@ pub fn print_status_ctx(status: Status, what: impl fmt::Display, ctx: impl fmt::
     }
 }
 
+pub mod http {
+    use reqwest::{header::HeaderMap, Error, IntoUrl, RequestBuilder, Url};
+
+    pub struct ClientBuilder {
+        url: Result<Url, Error>,
+        inner: reqwest::ClientBuilder,
+    }
+
+    pub struct Client {
+        url: Url,
+        inner: reqwest::Client,
+    }
+
+    impl ClientBuilder {
+        pub fn new(url: impl IntoUrl) -> Self {
+            Self {
+                url: url.into_url().map(|url| {
+                    if cfg!(debug_assertions) {
+                        let mut url = url;
+                        url.set_scheme("http").unwrap();
+                        url
+                    } else {
+                        assert!(url.scheme() == "https");
+                        url
+                    }
+                }),
+                inner: reqwest::Client::builder().use_sys_proxy(),
+            }
+        }
+
+        pub fn build(self) -> Result<Client, Error> {
+            let client = self.inner.build()?;
+            Ok(Client {
+                url: self.url?,
+                inner: client,
+            })
+        }
+
+        pub fn default_headers(mut self, headers: HeaderMap) -> Self {
+            self.inner = self.inner.default_headers(headers);
+            self
+        }
+    }
+
+    impl Client {
+        pub fn get(&self, extension: &str) -> RequestBuilder {
+            self.inner.get(self.url.join(extension).unwrap())
+        }
+
+        pub fn post(&self, extension: &str) -> RequestBuilder {
+            self.inner.post(self.url.join(extension).unwrap())
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! ensure_dir {
     ($dir:ident$( .push($subdir:expr) )? ) => {{

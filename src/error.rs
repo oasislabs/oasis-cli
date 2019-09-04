@@ -31,17 +31,12 @@ pub struct ProfileError {
 impl fmt::Display for ProfileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
-            ProfileErrorKind::Missing => write!(f, "`profile.{}` does not exist", self.name),
-            ProfileErrorKind::Invalid { key, cause } => {
-                let key_str = match key {
-                    Some(k) => format!(".{}", k),
-                    None => "".to_string(),
-                };
-                write!(
-                    f,
-                    "`profile.{}{}` is invalid: {}",
-                    self.name, key_str, cause
-                )
+            ProfileErrorKind::MissingProfile => write!(f, "`profile.{}` does not exist", self.name),
+            ProfileErrorKind::MissingKey(key) => {
+                write!(f, "`profile.{}` is missing field: `{}`.", self.name, key)
+            }
+            ProfileErrorKind::InvalidKey(key, cause) => {
+                write!(f, "`profile.{}.{}` is invalid: {}", self.name, key, cause)
             }
         }
     }
@@ -49,9 +44,7 @@ impl fmt::Display for ProfileError {
 
 #[derive(Debug)]
 pub enum ProfileErrorKind {
-    Missing,
-    Invalid {
-        key: Option<&'static str>,
-        cause: String,
-    },
+    MissingProfile,
+    MissingKey(&'static str),
+    InvalidKey(&'static str, String),
 }

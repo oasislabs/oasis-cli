@@ -1,7 +1,8 @@
 use std::{
-    fs,
+    fmt, fs,
+    os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
-    str::FromStr as _,
+    str::FromStr,
 };
 
 use failure::format_err;
@@ -14,6 +15,7 @@ use crate::{
 
 pub struct Config {
     doc: toml_edit::Document,
+    dirty: bool,
 }
 
 macro_rules! default_gateway_url {
@@ -21,24 +23,47 @@ macro_rules! default_gateway_url {
         "wss://web3.devnet.oasiscloud.io/ws"
     };
 }
-
 pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
-#[rustfmt::skip]
-static DEFAULT_CONFIG_TOML: &str = concat!(r#"[profile.default]
-endpoint = ""#, default_gateway_url!(), r#""
+
+const MNEMONIC_PHRASE_LEN: usize = 12;
+const PRIVATE_KEY_BYTES: usize = 32;
+const API_TOKEN_BYTES: usize = 32;
+
+macro_rules! profile_config_help {
+    () => {
+        r#"Available options are:
+
+    gateway      URL of the developer or Web3  gateway used for testing/deployment.
+
+    credential   The API token or private key/mnemonic used to authenticate to the
+                 developer or Web3 gateway, respectively.
+"#
+    };
+}
+
+macro_rules! default_config_toml {
+    () => {
+        concat!(
+            r#"[profile.default]
+gateway = ""#,
+            default_gateway_url!(),
+            r#""
 
 [profile.local]
-mnemonic = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
-endpoint = "ws://localhost:8546"
+gateway = "ws://localhost:8546"  # web3
+credential = "range drive remove bleak mule satisfy mandate east lion minimum unfold ready"
 
 [telemetry]
-enabled = false
-"#);
+enabled = false"#
+        )
+    };
+}
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            doc: toml_edit::Document::from_str(DEFAULT_CONFIG_TOML).unwrap(),
+            doc: toml_edit::Document::from_str(default_config_toml!()).unwrap(),
+            dirty: true,
         }
     }
 }
@@ -66,7 +91,7 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), failure::Error> {
-        if !Self::skip_generate() {
+        if !Self::skip_generate() && !self.dirty {
             self.write_to_file(Self::default_path()?)
         } else {
             Ok(())
@@ -74,7 +99,7 @@ impl Config {
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
-        use toml_edit::Item;
+        use toml_edit::{Item, Value};
 
         emit!(cmd.config.get, { "key": key });
 
@@ -87,7 +112,15 @@ impl Config {
         }
 
         Some(match itm {
-            Item::Value(v) => v.to_string(),
+            Item::Value(v) => match &v {
+                Value::Integer(repr) => repr.value().to_string(),
+                Value::String(repr) => repr.value().to_string(),
+                Value::Float(repr) => repr.value().to_string(),
+                Value::Boolean(repr) => repr.value().to_string(),
+                Value::DateTime(repr) => repr.value().to_string(),
+                Value::Array(array) => array.to_string(),
+                Value::InlineTable(table) => table.to_string(),
+            },
             Item::Table(t) => t.to_string(),
             Item::ArrayOfTables(ts) => ts
                 .iter()
@@ -101,8 +134,18 @@ impl Config {
     pub fn edit(&mut self, key: &str, value: &str) -> Result<(), failure::Error> {
         emit!(cmd.config.edit, { "key": key });
 
-        match key.split('.').collect::<Vec<&str>>().as_slice() {
-            ["profile", profile_name, key] => {
+        let mut key_comps = key.split('.');
+
+        match key_comps.next() {
+            Some("profile") => {
+                let profile_name = match key_comps.next() {
+                    Some(name) => name,
+                    None => {
+                        return Err(format_err!(
+                            "missing profile name in `profile.<name>.<key>`.",
+                        ))
+                    }
+                };
                 let profile = match self
                     .doc
                     .as_table_mut()
@@ -111,43 +154,83 @@ impl Config {
                     .map(|ps| ps.entry(profile_name))
                 {
                     Some(toml_edit::Item::Table(profile)) => profile,
-                    _ => return Err(format_err!("No profile named `{}`", profile_name)),
+                    _ => {
+                        return Err(ProfileError {
+                            name: profile_name.to_string(),
+                            kind: ProfileErrorKind::MissingProfile,
+                        }
+                        .into())
+                    }
                 };
-                match *key {
-                    "mnemonic" => {
-                        profile.remove("private_key");
+                let profile_key = key_comps.next();
+                if let Some(extra_comp) = key_comps.next() {
+                    return Err(format_err!(
+                        "unknown profile configuration subkey `{}`",
+                        extra_comp
+                    ));
+                }
+                let value = Self::read_value(value);
+                let canon_value = match profile_key {
+                    Some("credential") => Credential::from_str(&value)
+                        .map_err(|e| ProfileError {
+                            name: profile_name.to_string(),
+                            kind: ProfileErrorKind::InvalidKey("credential", e.to_string()),
+                        })?
+                        .to_string(),
+                    Some("gateway") => parse_gateway_url(&value)
+                        .map_err(|e| ProfileError {
+                            name: profile_name.to_string(),
+                            kind: ProfileErrorKind::InvalidKey("gateway", e.to_string()),
+                        })?
+                        .to_string(),
+                    Some(key) => {
+                        return Err(format_err!(
+                            "unknown profile configuration key `{}`.\n\n{}",
+                            key,
+                            profile_config_help!()
+                        ));
                     }
-                    "private_key" => {
-                        profile.remove("mnemonic");
+                    None => {
+                        return Err(format_err!(
+                            "missing profile configuration key in `profile.{}.<key>`.\n\n{}",
+                            profile_name,
+                            profile_config_help!()
+                        ));
                     }
-                    "endpoint" => (),
+                };
+                *profile.entry(profile_key.unwrap()) = toml_edit::value(canon_value);
+            }
+            Some("telemetry") => {
+                let telemetry_key = key_comps.next();
+                if let Some(extra_comp) = key_comps.next() {
+                    return Err(format_err!(
+                        "unknown telemetry configuration subkey `{}`.",
+                        extra_comp
+                    ));
+                }
+                match telemetry_key {
+                    Some("enabled") => self.enable_telemetry(value.parse()?),
+                    Some("user_id") => {
+                        return Err(format_err!(
+                            "we'd prefer if you didn't modify `user_id`. \
+                             If you feel strongly\nabout it, you can edit \
+                             the config file directly."
+                        ))
+                    }
                     _ => {
                         return Err(format_err!(
-                            "unknown configuration option: `{}`. \
-                             Valid options are `mnemonic`, `private_key`, and `endpoint`.",
+                            "unknown configuration option: `{}`. Available options are `enabled`.",
                             key
                         ))
                     }
                 }
-                *profile.entry(key) = toml_edit::value(value);
             }
-            ["telemetry", key] => match *key {
-                "enabled" => self.enable_telemetry(value.parse()?),
-                "user_id" => {
-                    return Err(format_err!(
-                        "we'd prefer if you didn't modify `user_id`. \
-                         If you feel strongly about it,\nyou can edit \
-                         the config file directly."
-                    ))
-                }
-                _ => {
-                    return Err(format_err!(
-                        "unknown configuration option: `{}`. Valid options are `enabled`.",
-                        key
-                    ))
-                }
-            },
-            _ => return Err(format_err!("unknown configuration option: `{}`", key)),
+            Some(key) => return Err(format_err!("unknown configuration option: `{}`", key)),
+            None => {
+                return Err(format_err!(
+                    "available configuration options are: `profile`, `telemetry`",
+                ))
+            }
         }
 
         Ok(())
@@ -210,14 +293,17 @@ impl Config {
             .map_err(|err| Error::ReadFile(path.display().to_string(), err.to_string()))?;
         let doc = toml_edit::Document::from_str(&config_string)
             .map_err(|err| Error::ConfigParse(path.display().to_string(), err.to_string()))?;
-        Ok(Self { doc })
+        Ok(Self { doc, dirty: false })
     }
 
     fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), failure::Error> {
-        Ok(std::fs::write(
-            path,
-            self.doc.to_string_in_original_order(),
-        )?)
+        fs::write(&path, self.doc.to_string_in_original_order())?;
+
+        let mut perms = fs::metadata(&path)?.permissions();
+        perms.set_mode(0o600 /* o+rw */);
+        fs::set_permissions(&path, perms)?;
+
+        Ok(())
     }
 
     fn skip_generate() -> bool {
@@ -235,6 +321,17 @@ impl Config {
             .as_table_mut()
             .unwrap()
             .entry("enabled") = toml_edit::value(enabled);
+    }
+
+    fn read_value(value: &str) -> String {
+        if value == "-" {
+            let mut value = String::new();
+            std::io::stdin().read_line(&mut value).unwrap_or_default();
+            value.pop(); // remove the '\n', if any
+            value
+        } else {
+            value.to_string()
+        }
     }
 }
 
@@ -287,13 +384,45 @@ impl From<Telemetry> for toml_edit::Table {
 }
 
 pub struct Profile {
-    pub endpoint: Url,
-    pub secret: Secret,
+    pub gateway: Url,
+    pub credential: Credential,
 }
 
-pub enum Secret {
+pub enum Credential {
     Mnemonic(String),
-    Key(String),
+    PrivateKey(String),
+    ApiToken(String),
+}
+
+impl fmt::Display for Credential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Credential::*;
+        f.write_str(match self {
+            Mnemonic(s) | PrivateKey(s) | ApiToken(s) => s,
+        })
+    }
+}
+
+impl FromStr for Credential {
+    type Err = failure::Error;
+
+    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("0x") {
+            s = &s[2..];
+        }
+        if let Ok(key_bytes) = hex::decode(s) {
+            if key_bytes.len() == PRIVATE_KEY_BYTES {
+                return Ok(Credential::PrivateKey(s.to_string()));
+            };
+        } else if s.split(' ').count() == MNEMONIC_PHRASE_LEN {
+            return Ok(Credential::Mnemonic(s.to_lowercase()));
+        } else if let Ok(tok_bytes) = base64::decode(s) {
+            if tok_bytes.len() == API_TOKEN_BYTES {
+                return Ok(Credential::ApiToken(s.to_string()));
+            }
+        }
+        Err(format_err!("must be a private key, mnemonic, or API token"))
+    }
 }
 
 impl Profile {
@@ -301,54 +430,62 @@ impl Profile {
         profile_name: &str,
         profile_tab: Option<&toml_edit::Table>,
     ) -> Result<Self, ProfileError> {
-        macro_rules! invalid_key {
+        macro_rules! err {
+            (missing) => {
+                ProfileError {
+                    name: profile_name.to_string(),
+                    kind: ProfileErrorKind::MissingProfile,
+                }
+            };
+            ($key:expr, missing) => {
+                ProfileError {
+                    name: profile_name.to_string(),
+                    kind: ProfileErrorKind::MissingKey($key),
+                }
+            };
             ($key:expr, $cause:expr) => {
                 ProfileError {
                     name: profile_name.to_string(),
-                    kind: ProfileErrorKind::Invalid {
-                        key: $key,
-                        cause: $cause.to_string(),
-                    },
+                    kind: ProfileErrorKind::InvalidKey($key, $cause.to_string()),
                 }
             };
         }
 
-        let tab = match profile_tab {
+        let profile = match profile_tab {
             Some(tab) => tab,
-            None => {
-                return Err(ProfileError {
-                    name: profile_name.to_string(),
-                    kind: ProfileErrorKind::Missing,
-                })
-            }
+            None => return Err(err!(missing)),
         };
-        let secret = match (tab.get("mnemonic"), tab.get("private_key")) {
-            (Some(_), Some(_)) => Err(invalid_key!(
-                None,
-                "only one of `mnemonic` and `private_key` can be specified"
-            )),
-            (Some(m), _) => m
-                .as_str()
-                .map(|m| Secret::Mnemonic(m.to_string()))
-                .ok_or_else(|| invalid_key!(Some("mnemonic"), "value must be a string")),
-            (_, Some(k)) => k
-                .as_str()
-                .map(|k| Secret::Key(k.to_string()))
-                .ok_or_else(|| invalid_key!(Some("private_key"), "value must be a string")),
-            (None, None) => Err(invalid_key!(
-                None,
-                "one of `mnemonic` or `private_key` is required"
-            )),
-        }?;
         Ok(Self {
-            endpoint: tab
-                .get("endpoint")
-                .and_then(|ep| ep.as_str())
-                .ok_or_else(|| invalid_key!(None, "`endpoint` is required"))
-                .and_then(|ep| {
-                    Url::parse(ep).map_err(|e: reqwest::UrlError| invalid_key!(Some("endpoint"), e))
-                })?,
-            secret,
+            gateway: profile
+                .get("gateway")
+                .and_then(|gw| gw.as_str())
+                .ok_or_else(|| err!("gateway", missing))
+                .and_then(|gw| parse_gateway_url(gw).map_err(|e| err!("gateway", e)))?,
+            credential: Credential::from_str(
+                profile
+                    .get("credential")
+                    .and_then(|c| c.as_str())
+                    .ok_or_else(|| err!("credential", missing))?,
+            )
+            .map_err(|e| err!("credential", e))?,
         })
     }
+}
+
+fn parse_gateway_url(url_str: &str) -> Result<Url, failure::Error> {
+    let url = Url::parse(url_str)?;
+    if !url.has_host() {
+        return Err(format_err!("URL must specify a domain"));
+    }
+    match url.scheme() {
+        "ws" | "wss" | "http" | "https" => {}
+        scheme => {
+            return Err(format_err!(
+                "invalid URL scheme `{}`. Must be http(s) or ws(s).",
+                scheme
+            ));
+        }
+    }
+
+    Ok(url)
 }

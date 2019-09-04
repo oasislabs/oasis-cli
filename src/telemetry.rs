@@ -9,7 +9,7 @@ use flate2::{write::GzEncoder, Compression};
 use fs2::FileExt;
 use once_cell::sync::OnceCell;
 
-const DESTINATION_URL: &str = "https://gollum.devnet2.oasiscloud.io";
+const SUBMIT_URL: &str = "https://telemetry.oasiscloud.io";
 const UPLOAD_THRESHOLD_FILESIZE: u64 = 50 * 1024; // 50 KiB
 
 static TLM: OnceCell<Telemetry> = OnceCell::new();
@@ -131,28 +131,26 @@ pub fn upload() -> Result<(), failure::Error> {
         rd.read_to_end(&mut log)?;
 
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
+        gz.write_all(user_id.as_bytes())?;
+        gz.write_all(b"\n")?;
         gz.write_all(&log)?;
         let body = gz.finish()?;
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(7))
+        let client = crate::utils::http::ClientBuilder::new(SUBMIT_URL)
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(
                     "Content-Encoding",
                     reqwest::header::HeaderValue::from_static("gzip"),
                 );
+                headers.insert(
+                    "Content-Length",
+                    reqwest::header::HeaderValue::from_str(&format!("{}", body.len())).unwrap(),
+                );
                 headers
             })
             .build()?;
-        client
-            .post(
-                reqwest::Url::parse(DESTINATION_URL)
-                    .unwrap()
-                    .join(user_id)?,
-            )
-            .body(body)
-            .send()?;
+        client.post("").body(body).send()?;
         Ok(())
     };
 

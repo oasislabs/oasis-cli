@@ -18,9 +18,6 @@ jobs:
       - checkout
       - run: cargo fmt -- --check
       - run:
-          name: Install Python deps
-          command: pip3 install toml
-      - run:
           name: Python checkstyle
           working_directory: tests
           command: |
@@ -28,7 +25,7 @@ jobs:
             pylint *.py
       - run: cargo build
       - run: cargo test
-      - run: pytest tests/
+      - run: pytest -n 8 --tb line tests/
 
   clippy:
     executor: rust

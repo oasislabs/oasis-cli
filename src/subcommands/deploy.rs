@@ -45,19 +45,18 @@ impl<'a> DeployOptions<'a> {
         match config.profile(profile_name) {
             Ok(_) => (),
             Err(ProfileError {
-                kind: ProfileErrorKind::Invalid { key, .. },
+                kind: ProfileErrorKind::MissingKey("credential"),
                 ..
-            }) if key.map(|k| k != "endpoint").unwrap_or(true)
-                && config
-                    .profile_raw(profile_name)
-                    .and_then(|t| t.get("endpoint"))
-                    .and_then(|ep| ep.as_str())
-                    .map(|ep| ep == DEFAULT_GATEWAY_URL)
-                    .unwrap_or_default() =>
+            }) if config
+                .profile_raw(profile_name)
+                .and_then(|t| t.get("gateway"))
+                .and_then(|gw| gw.as_str())
+                .map(|gw| gw == DEFAULT_GATEWAY_URL)
+                .unwrap_or_default() =>
             {
                 print_need_deploy_key_message!(profile_name);
                 return Err(failure::format_err!(
-                    "`profile.{}.private_key` is required to deploy on the Oasis Devnet.",
+                    "`profile.{}.credential` must be set to deploy on the Oasis Devnet.",
                     profile_name
                 ));
             }
@@ -121,6 +120,7 @@ fn deploy_js(
     let mut npm_args = vec![
         "run",
         "deploy",
+        "--if-present",
         "--prefix",
         package_dir.to_str().unwrap(),
         "--",

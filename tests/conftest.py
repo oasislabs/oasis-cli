@@ -10,10 +10,13 @@ from subprocess import DEVNULL
 import tempfile
 
 import pytest
-import toml
 
 PROJ_ROOT = osp.abspath(osp.join(osp.dirname(__file__), '..'))
 TARGET_DIR = osp.join(PROJ_ROOT, 'target', 'debug')
+
+SAMPLE_KEY = '77827066de994266ffc685a8165e6f1b62c671ff801ba08475ca4c8b41ebf388'
+SAMPLE_TOKEN = 'By9Uzva7SezLX+mMnJyUKh/pBOqQhfkuFkUWtkakMRc='
+SAMPLE_MNEMONIC = 'range drive remove bleak mule satisfy mandate east lion minimum unfold ready'
 
 
 @pytest.fixture(params=[None, 'custom_prefix'])
@@ -26,9 +29,10 @@ def oenv(request):
             self.home_dir = home_dir
             self.config_dir = osp.join(user_config_dir, 'oasis')
             self.data_dir = osp.join(user_data_dir, 'oasis')
-
             self.bin_dir = osp.join(osp.dirname(user_data_dir), 'bin')
+
             os.makedirs(self.bin_dir, exist_ok=True)
+            os.makedirs(self.data_dir, exist_ok=True)
 
             self.config_file = osp.join(self.config_dir, 'config.toml')
             self.metrics_file = osp.join(self.data_dir, 'metrics.jsonl')
@@ -43,10 +47,6 @@ def oenv(request):
             })
 
             self._configured = False
-
-        def load_config(self):
-            with open(self.config_file) as f_config:
-                return toml.load(f_config)
 
         def run(self, cmd, env=None, input='', **kwargs):  # pylint:disable=redefined-builtin
             if not self._configured:

@@ -3,6 +3,8 @@
 import os.path as osp
 from subprocess import PIPE
 
+from .conftest import SAMPLE_KEY
+
 
 def test_invoke_npm(oenv, mock_tool):
     mock_tool.create_at(osp.join(oenv.bin_dir, 'npm'))
@@ -19,7 +21,7 @@ def test_alt_npm(oenv, mock_tool):
     oenv.run('oasis test', env={'OASIS_NPM': 'yarn'}, cwd=app_dir)
 
 
-def test_test_profile(oenv, mock_tool):
+def test_testing_profile_options(oenv, mock_tool):
     mock_tool.create_at(osp.join(oenv.bin_dir, 'npm'))
     app_dir = osp.join(oenv.create_project(), 'app')
 
@@ -28,7 +30,7 @@ def test_test_profile(oenv, mock_tool):
     cp = oenv.run('oasis test', cwd=app_dir, stdout=PIPE)
     assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'local'
 
-    oenv.run('oasis config profile.default.private_key ""')
+    oenv.run(f'oasis config profile.default.credential "{SAMPLE_KEY}"')
     cp = oenv.run('oasis test --profile default', cwd=app_dir, stdout=PIPE)
     assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'default'
 
