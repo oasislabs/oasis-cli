@@ -27,8 +27,23 @@ pub fn installed_release() -> Result<Release, failure::Error> {
 
 pub fn set(version: &str) -> Result<(), failure::Error> {
     if version == "current" {
+        // ^ This is effectively a post-install hook.
+        let rustup = crate::dirs::home_dir().join(".cargo/bin/rustup");
         crate::cli::gen_completions()?;
-        crate::cmd!("rustup", "toolchain", "install", crate::rust_toolchain!())?;
+        crate::cmd!(
+            &rustup.to_str().unwrap(),
+            "toolchain",
+            "install",
+            crate::rust_toolchain!()
+        )?;
+        crate::cmd!(
+            &rustup.to_str().unwrap(),
+            "target",
+            "add",
+            "wasm32-wasi",
+            "--toolchain",
+            crate::rust_toolchain!()
+        )?;
         return Ok(());
     }
 
@@ -81,7 +96,11 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
     )
     .ok(); // This isn't catastropic. We'll just have to re-download later.
 
-    crate::cmd!("oasis", "set-toolchain", "current")?;
+    crate::cmd!(
+        std::env::args().nth(0).unwrap(), /* oasis */
+        "set-toolchain",
+        "current"
+    )?;
 
     Ok(())
 }
