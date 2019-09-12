@@ -28,7 +28,10 @@ pub fn installed_release() -> Result<Release, failure::Error> {
 pub fn set(version: &str) -> Result<(), failure::Error> {
     if version == "current" {
         // ^ This is effectively a post-install hook.
-        let rustup = crate::dirs::home_dir().join(".cargo/bin/rustup");
+        let rustup = std::env::var("CARGO_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| crate::dirs::home_dir().join(".cargo"))
+            .join("bin/rustup");
         crate::cli::gen_completions()?;
         crate::cmd!(
             &rustup.to_str().unwrap(),
