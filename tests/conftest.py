@@ -15,7 +15,7 @@ PROJ_ROOT = osp.abspath(osp.join(osp.dirname(__file__), '..'))
 TARGET_DIR = osp.join(PROJ_ROOT, 'target', 'debug')
 
 SAMPLE_KEY = '77827066de994266ffc685a8165e6f1b62c671ff801ba08475ca4c8b41ebf388'
-SAMPLE_TOKEN = 'By9Uzva7SezLX+mMnJyUKh/pBOqQhfkuFkUWtkakMRc='
+SAMPLE_TOKEN = 'LPbGhl6lGxaFDHgHF5N8CNZ32a3MgE+IfmutjxEb3FWt4WwP'
 SAMPLE_MNEMONIC = 'range drive remove bleak mule satisfy mandate east lion minimum unfold ready'
 
 

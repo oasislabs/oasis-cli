@@ -27,7 +27,7 @@ pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
 
 const MNEMONIC_PHRASE_LEN: usize = 12;
 const PRIVATE_KEY_BYTES: usize = 32;
-const API_TOKEN_BYTES: usize = 32;
+const API_TOKEN_BYTES: usize = 32 + std::mem::size_of::<u32>();
 
 macro_rules! profile_config_help {
     () => {
