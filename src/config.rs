@@ -20,7 +20,7 @@ pub struct Config {
 
 macro_rules! default_gateway_url {
     () => {
-        "wss://web3.devnet.oasiscloud.io/ws"
+        "https://gateway.devnet.oasiscloud.io"
     };
 }
 pub static DEFAULT_GATEWAY_URL: &str = default_gateway_url!();
