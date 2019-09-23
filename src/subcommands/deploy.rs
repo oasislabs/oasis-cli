@@ -24,7 +24,7 @@ which you should indeed click. Copy the revealed text to your clipboard then run
     {config_cmd}
 
 which will begin to read your credential from stdin. You should then paste your
-credential in and hit enter. You're ready to try your deploy again!
+API token in and hit enter. You're ready to try your deploy again!
 "#,
             preamble = "You need an account to deploy on the Oasis Devnet.".yellow(),
             dashboard_url = "https://dashboard.oasiscloud.io/settings".cyan(),
