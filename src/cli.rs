@@ -31,7 +31,10 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
             (@arg stack_size: +takes_value --stack-size
                 "Set the amount of linear memory allocated to program stack (in bytes)")
             (@arg wasi: --wasi "Build a vanilla WASI service")
-            (@arg SERVICE: +multiple "Specify which service(s) to build")
+            (@group artifacts =>
+                (@arg SERVICE: +multiple "Specify which service(s) to build")
+                (@arg only_services: --services "Build all services (and no apps)")
+            )
             (@arg builder_args: +raw "Args to pass to language-specific build tool")
         )
         (@subcommand test =>
@@ -41,7 +44,10 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
             (@arg debug: --debug "Build without optimizations")
             (@arg profile: -p --profile default_value[local]
                 "Set testing profile. Run `oasis config profile` \nto list available profiles.")
-            (@arg SERVICE: +multiple "Specify which service(s) to test")
+            (@group artifacts =>
+                (@arg SERVICE: +multiple "Specify which service(s) to build")
+                (@arg only_services: --services "Build all services (and no apps)")
+            )
             (@arg tester_args: +raw "Args to pass to language-specific test tool")
         )
         (@subcommand clean => (about: "Remove build products"))

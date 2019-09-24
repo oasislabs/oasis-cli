@@ -8,12 +8,15 @@ use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
     error::Error,
-    utils::{detect_projects, print_status, print_status_in, ProjectKind, Status},
+    utils::{
+        detect_projects, print_status, print_status_in, DevPhase, ProjectKind, RequestedArtifacts,
+        Status,
+    },
 };
 
 pub struct BuildOptions<'a> {
     stack_size: Option<u32>,
-    services: Vec<String>,
+    artifacts: RequestedArtifacts<'a>,
     debug: bool,
     wasi: bool,
     verbosity: Verbosity,
@@ -32,7 +35,7 @@ impl<'a> BuildOptions<'a> {
                 Err(err) => return Err(err.into()),
             },
             debug: m.is_present("debug"),
-            services: m.values_of_lossy("SERVICE").unwrap_or_default(),
+            artifacts: RequestedArtifacts::from_matches(m),
             wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
@@ -49,20 +52,20 @@ impl<'a> super::ExecSubcommand for BuildOptions<'a> {
 }
 
 pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    if !opts.services.is_empty()
-        && opts
-            .services
+    if let RequestedArtifacts::Explicit(artifacts) = &opts.artifacts {
+        if artifacts
             .iter()
-            .all(|svc| svc.ends_with(".wasm") || svc == "a.out")
-    {
-        print_status(Status::Building, opts.services.join(", "));
-        for svc in opts.services.iter() {
-            let out_file = Path::new(svc).with_extension("wasm");
-            prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
+            .all(|a| a.ends_with(".wasm") || *a == "a.out")
+        {
+            print_status(Status::Building, artifacts.join(", "));
+            for svc in artifacts.iter() {
+                let out_file = Path::new(svc).with_extension("wasm");
+                prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
+            }
+            return Ok(());
         }
-        return Ok(());
     }
-    let projects = detect_projects()?;
+    let projects = detect_projects(DevPhase::Build)?;
     if projects.is_empty() {
         return Err(Error::DetectProject(format!("{}", std::env::current_dir()?.display())).into());
     }
@@ -72,6 +75,9 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
                 build_rust(&opts, &proj.manifest_path, manifest)?;
             }
             ProjectKind::Javascript(package_json) => {
+                if opts.artifacts != RequestedArtifacts::Unspecified {
+                    continue;
+                }
                 build_js(&opts, &proj.manifest_path, package_json)?;
             }
         }
@@ -86,14 +92,14 @@ fn build_rust(
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
 
-    let mut product_names = if opts.services.is_empty() {
+    let mut product_names = if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
+        services.clone()
+    } else {
         manifest
             .bin
             .iter()
-            .filter_map(|bin| bin.name.as_ref().map(String::to_string))
+            .filter_map(|bin| bin.name.as_ref().map(|s| s.as_str()))
             .collect()
-    } else {
-        opts.services.clone()
     };
     product_names.sort();
     let num_products = product_names.len();
@@ -135,7 +141,7 @@ fn build_rust(
 
     let wasm_names = product_names
         .into_iter()
-        .map(|n| n + ".wasm")
+        .map(|n| format!("{}.wasm", n))
         .collect::<Vec<_>>();
     if opts.verbosity > Verbosity::Quiet {
         print_status(Status::Preparing, wasm_names.join(", "));
@@ -170,15 +176,12 @@ fn get_cargo_args<'a>(
         cargo_args.push("--release");
     }
 
-    if opts.services.is_empty() {
-        cargo_args.push("--bins");
-    } else {
-        for service_name in opts.services.iter() {
-            if !manifest
-                .bin
-                .iter()
-                .any(|bin| Some(service_name) == bin.name.as_ref())
-            {
+    if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
+        for service_name in services.iter() {
+            let manifest_has_service = manifest.bin.iter().any(|bin| {
+                *service_name == bin.name.as_ref().map(String::as_str).unwrap_or_default()
+            });
+            if !manifest_has_service {
                 return Err(failure::format_err!(
                     "could not find service binary `{}` in crate",
                     service_name
@@ -187,6 +190,8 @@ fn get_cargo_args<'a>(
             cargo_args.push("--bin");
             cargo_args.push(service_name);
         }
+    } else {
+        cargo_args.push("--bins");
     }
 
     if !opts.builder_args.is_empty() {
@@ -294,7 +299,10 @@ fn build_js(
     if opts.verbosity > Verbosity::Quiet {
         print_status_in(
             Status::Building,
-            package_json["name"].as_str().unwrap(),
+            package_json
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("app"),
             package_dir,
         );
     }

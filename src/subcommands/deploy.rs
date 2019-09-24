@@ -7,7 +7,7 @@ use crate::{
     config::{Config, DEFAULT_GATEWAY_URL},
     emit,
     error::{ProfileError, ProfileErrorKind},
-    utils::{detect_projects, print_status_in, ProjectKind, Status},
+    utils::{detect_projects, print_status_in, DevPhase, ProjectKind, Status},
 };
 
 macro_rules! print_need_deploy_key_message {
@@ -80,7 +80,7 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
 
 pub fn deploy(opts: DeployOptions) -> Result<(), failure::Error> {
     let mut found_deployable = false;
-    for proj in detect_projects()? {
+    for proj in detect_projects(DevPhase::Deploy)? {
         match proj.kind {
             ProjectKind::Rust(_) => (),
             ProjectKind::Javascript(manifest) => {
