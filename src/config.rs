@@ -41,13 +41,12 @@ macro_rules! profile_config_help {
     };
 }
 
+#[rustfmt::skip]
 macro_rules! default_config_toml {
     () => {
-        concat!(
-            r#"[profile.default]
-gateway = ""#,
-            default_gateway_url!(),
-            r#""
+        concat! {
+r#"[profile.default]
+gateway = ""#, default_gateway_url!(), r#""
 
 [profile.local]
 gateway = "ws://localhost:8546"  # web3
@@ -55,7 +54,7 @@ credential = "range drive remove bleak mule satisfy mandate east lion minimum un
 
 [telemetry]
 enabled = false"#
-        )
+        }
     };
 }
 

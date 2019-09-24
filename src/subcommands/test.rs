@@ -4,11 +4,11 @@ use crate::{
     command::{run_cmd_with_env, Verbosity},
     config::Config,
     emit,
-    utils::{detect_projects, print_status_in, ProjectKind, Status},
+    utils::{detect_projects, print_status_in, DevPhase, ProjectKind, RequestedArtifacts, Status},
 };
 
 pub struct TestOptions<'a> {
-    services: Vec<&'a str>,
+    artifacts: RequestedArtifacts<'a>,
     debug: bool,
     profile: &'a str,
     verbosity: Verbosity,
@@ -23,10 +23,7 @@ impl<'a> TestOptions<'a> {
         }
         Ok(Self {
             debug: m.is_present("debug"),
-            services: m
-                .values_of("SERVICE")
-                .unwrap_or_default()
-                .collect::<Vec<&str>>(),
+            artifacts: RequestedArtifacts::from_matches(m),
             profile: profile_name,
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
@@ -43,10 +40,15 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
 }
 
 pub fn test(opts: TestOptions) -> Result<(), failure::Error> {
-    for proj in detect_projects()? {
+    for proj in detect_projects(DevPhase::Test)? {
         match proj.kind {
             ProjectKind::Rust(manifest) => test_rust(&opts, &proj.manifest_path, manifest)?,
-            ProjectKind::Javascript(manifest) => test_js(&opts, &proj.manifest_path, manifest)?,
+            ProjectKind::Javascript(manifest) => {
+                if opts.artifacts != RequestedArtifacts::Unspecified {
+                    continue;
+                }
+                test_js(&opts, &proj.manifest_path, manifest)?
+            }
         }
     }
     Ok(())
@@ -59,14 +61,14 @@ fn test_rust(
 ) -> Result<(), failure::Error> {
     let cargo_args = get_cargo_args(&opts, manifest_path)?;
 
-    let mut product_names = if opts.services.is_empty() {
+    let mut product_names = if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
+        services.clone()
+    } else {
         manifest
             .bin
             .iter()
             .filter_map(|bin| bin.name.as_ref().map(|n| n.as_str()))
             .collect()
-    } else {
-        opts.services.clone()
     };
     product_names.sort();
     let num_products = product_names.len();
@@ -118,13 +120,13 @@ fn get_cargo_args<'a>(
         cargo_args.push("--release");
     }
 
-    if opts.services.is_empty() {
-        cargo_args.push("--bins");
-    } else {
-        for service_name in opts.services.iter() {
+    if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
+        for service_name in services.iter() {
             cargo_args.push("--bin");
             cargo_args.push(service_name);
         }
+    } else {
+        cargo_args.push("--bins");
     }
 
     cargo_args.push("--manifest-path");

@@ -7,33 +7,81 @@ use colored::*;
 
 use crate::error::Error;
 
+#[derive(Debug)]
 pub struct Project {
     pub manifest_path: PathBuf,
     pub kind: ProjectKind,
 }
 
+#[derive(Debug)]
 pub enum ProjectKind {
     Rust(Box<cargo_toml::Manifest>),
     Javascript(serde_json::Map<String, serde_json::Value>),
 }
 
-impl ProjectKind {
-    fn from_manifest(manifest_path: &Path) -> Result<Option<Self>, failure::Error> {
+impl Project {
+    fn from_manifest(manifest_path: PathBuf) -> Result<Option<Self>, failure::Error> {
         match manifest_path.file_name().and_then(|p| p.to_str()) {
             Some("Cargo.toml") => {
-                let mut manifest = cargo_toml::Manifest::from_path(manifest_path).unwrap();
-                manifest.complete_from_path(manifest_path).unwrap();
-                Ok(Some(ProjectKind::Rust(box manifest)))
+                let mut manifest = cargo_toml::Manifest::from_path(&manifest_path).unwrap();
+                if manifest.workspace.is_none() {
+                    manifest.complete_from_path(&manifest_path).unwrap();
+                    Ok(Some(Self {
+                        manifest_path,
+                        kind: ProjectKind::Rust(box manifest),
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
-            Some("package.json") => Ok(Some(ProjectKind::Javascript(serde_json::from_slice(
-                &std::fs::read(manifest_path)?,
-            )?))),
+            Some("package.json") => {
+                let manifest: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
+                Ok(Some(Self {
+                    manifest_path,
+                    kind: ProjectKind::Javascript(manifest),
+                }))
+            }
             _ => Ok(None),
+        }
+    }
+
+    fn is_meta(&self) -> bool {
+        match &self.kind {
+            ProjectKind::Rust(..) => false,
+            ProjectKind::Javascript(manifest) => manifest
+                .get("devDependencies")
+                .and_then(|deps| deps.get("lerna"))
+                .map(|lerna| !lerna.is_null())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn matches_dev_phase(&self, phase: DevPhase) -> bool {
+        match &self.kind {
+            ProjectKind::Rust(..) => true,
+            ProjectKind::Javascript(manifest) => manifest
+                .get("scripts")
+                .and_then(|s| s.as_object())
+                .map(|s| {
+                    (phase == DevPhase::Build && s.contains_key("build"))
+                        || (phase == DevPhase::Test && s.contains_key("test"))
+                        || (phase == DevPhase::Deploy && s.contains_key("deploy"))
+                })
+                .unwrap_or_default(),
         }
     }
 }
 
-pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DevPhase {
+    Build,
+    Test,
+    Deploy,
+    Any,
+}
+
+pub fn detect_projects(phase: DevPhase) -> Result<Vec<Project>, failure::Error> {
     let cwd = std::env::current_dir()?;
     let enoproj = || Error::DetectProject(format!("{}", cwd.display()));
     let root = cwd
@@ -41,23 +89,34 @@ pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
         .find(|a| a.join(".git").is_dir())
         .ok_or_else(enoproj)?;
 
-    let mut projects = std::collections::HashMap::new();
+    let mut projects = Vec::new();
+    let mut meta_projects: Vec<PathBuf> = Vec::new();
+    // ^ The assumption is that there are few enough projects and meta-projects that
+    // O(n*p[*s]) has smaller constant factors (and code size) than a HashMap or trie,
+    // respectively (where n is the number of files, p is the number of projects,
+    // and s is the length of the projects' paths in the case of prefix matching).
     for ancestor in cwd.ancestors() {
         let mut found_project = false;
         for entry in ignore::Walk::new(ancestor) {
             let entry = entry?;
-            if projects.contains_key(entry.path()) {
+            if projects
+                .iter()
+                .any(|p: &Project| p.manifest_path == entry.path())
+                || meta_projects
+                    .iter()
+                    .any(|mp| entry.path().ancestors().any(|p| p == mp))
+            {
                 continue;
             }
-            if let Some(project_kind) = ProjectKind::from_manifest(entry.path())? {
+            if let Some(project) = Project::from_manifest(entry.path().to_path_buf())? {
                 found_project = true;
-                projects.insert(
-                    entry.path().to_path_buf(),
-                    Project {
-                        manifest_path: entry.path().to_path_buf(),
-                        kind: project_kind,
-                    },
-                );
+                if project.is_meta() {
+                    meta_projects.push(entry.path().to_path_buf());
+                }
+                if !project.matches_dev_phase(phase) {
+                    continue;
+                }
+                projects.push(project);
             }
         }
         if ancestor == root || found_project {
@@ -65,7 +124,6 @@ pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
         }
     }
 
-    let mut projects: Vec<Project> = projects.into_iter().map(|(_, v)| v).collect();
     projects.sort_unstable_by(|a, b| {
         // build service before js app
         match (&a.kind, &b.kind) {
@@ -75,6 +133,25 @@ pub fn detect_projects() -> Result<Vec<Project>, failure::Error> {
         }
     });
     Ok(projects)
+}
+
+#[derive(PartialEq, Eq)]
+pub enum RequestedArtifacts<'a> {
+    Explicit(Vec<&'a str>),
+    Unspecified,
+    NoApps,
+}
+
+impl<'a> RequestedArtifacts<'a> {
+    pub fn from_matches(m: &'a clap::ArgMatches) -> Self {
+        if m.is_present("artifacts") {
+            m.values_of("SERVICE")
+                .map(|vs| RequestedArtifacts::Explicit(vs.collect()))
+                .unwrap_or(RequestedArtifacts::NoApps)
+        } else {
+            RequestedArtifacts::Unspecified
+        }
+    }
 }
 
 pub enum Status {

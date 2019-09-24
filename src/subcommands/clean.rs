@@ -1,11 +1,11 @@
 use crate::{
     command::{run_cmd, Verbosity},
     emit,
-    utils::{detect_projects, ProjectKind},
+    utils::{detect_projects, DevPhase, ProjectKind},
 };
 
 pub fn clean() -> Result<(), failure::Error> {
-    for proj in detect_projects()? {
+    for proj in detect_projects(DevPhase::Any)? {
         match proj.kind {
             ProjectKind::Rust(_) => {
                 emit!(cmd.clean, "rust");
