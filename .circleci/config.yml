@@ -25,7 +25,12 @@ jobs:
             pylint *.py
       - run: cargo build
       - run: cargo test
-      - run: pytest -n 8 --tb line tests/
+      - run:
+          name: Install oasis-build
+          command: |
+            curl --proto '=https' --tlsv1.2 -sSL https://get.oasis.dev | python3 - --speedrun --toolchain unstable --no-node
+            cp /root/.local/bin/oasis-build /root/.cargo/bin
+      - run: pytest -n 8 tests/
 
   clippy:
     executor: rust

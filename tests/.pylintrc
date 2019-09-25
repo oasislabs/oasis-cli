@@ -1,6 +1,6 @@
 [MASTER]
 good-names=i,j,k,v,cp
-no-docstring-rgx=^(_|[a-z]+$|test_|[\w_]+_config$|mock_tool)
+no-docstring-rgx=^(_|[a-z]+$|test_|[\w_]+_config$|mock_tool|temp_dir)
 disable=too-few-public-methods,duplicate-code
 ignored-argument-names=.*_proxy
 

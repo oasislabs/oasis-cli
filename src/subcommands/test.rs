@@ -1,29 +1,31 @@
-use std::{ffi::OsString, path::Path};
+use std::{collections::BTreeMap, ffi::OsString, path::Path};
 
 use crate::{
     command::{run_cmd_with_env, Verbosity},
     config::Config,
     emit,
-    utils::{detect_projects, print_status_in, DevPhase, ProjectKind, RequestedArtifacts, Status},
+    errors::Error,
+    utils::{print_status_in, Status},
+    workspace::{ProjectKind, Target, TargetRef, Workspace},
 };
 
 pub struct TestOptions<'a> {
-    artifacts: RequestedArtifacts<'a>,
-    debug: bool,
-    profile: &'a str,
-    verbosity: Verbosity,
-    tester_args: Vec<&'a str>,
+    pub targets: Vec<&'a str>,
+    pub debug: bool,
+    pub profile: &'a str,
+    pub verbosity: Verbosity,
+    pub tester_args: Vec<&'a str>,
 }
 
 impl<'a> TestOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, failure::Error> {
+    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, Error> {
         let profile_name = m.value_of("profile").unwrap();
         if let Err(e) = config.profile(profile_name) {
             return Err(e.into());
         }
         Ok(Self {
             debug: m.is_present("debug"),
-            artifacts: RequestedArtifacts::from_matches(m),
+            targets: m.values_of("TARGETS").unwrap_or_default().collect(),
             profile: profile_name,
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
@@ -34,62 +36,65 @@ impl<'a> TestOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for TestOptions<'a> {
-    fn exec(self) -> Result<(), failure::Error> {
-        test(self)
+    fn exec(self) -> Result<(), Error> {
+        let workspace = Workspace::populate()?;
+        let targets = workspace.collect_targets(&self.targets)?;
+        let build_opts = super::BuildOptions {
+            targets: self.targets.clone(),
+            debug: false,
+            verbosity: self.verbosity,
+            stack_size: None,
+            wasi: false,
+            builder_args: Vec::new(),
+        };
+        super::build(&workspace, &targets, build_opts)?;
+        test(&workspace, &targets, self)
     }
 }
 
-pub fn test(opts: TestOptions) -> Result<(), failure::Error> {
-    for proj in detect_projects(DevPhase::Test)? {
-        match proj.kind {
-            ProjectKind::Rust(manifest) => test_rust(&opts, &proj.manifest_path, manifest)?,
-            ProjectKind::Javascript(manifest) => {
-                if opts.artifacts != RequestedArtifacts::Unspecified {
-                    continue;
-                }
-                test_js(&opts, &proj.manifest_path, manifest)?
+pub fn test(
+    workspace: &Workspace,
+    targets: &[TargetRef],
+    opts: TestOptions,
+) -> Result<(), failure::Error> {
+    for target_ref in targets {
+        let target = &workspace[*target_ref];
+        let proj = &workspace[target.project_ref];
+        let print_status = || {
+            if opts.verbosity > Verbosity::Quiet {
+                print_status_in(
+                    Status::Testing,
+                    &target.name,
+                    proj.manifest_path.parent().unwrap(),
+                );
             }
+        };
+        match &proj.kind {
+            ProjectKind::Rust { .. } => {
+                print_status();
+                test_rust(target, &proj.manifest_path, &opts)?;
+            }
+            ProjectKind::JavaScript { testable, .. } if *testable => {
+                print_status();
+                test_js(&proj.manifest_path, &opts)?;
+            }
+            _ => (),
         }
     }
     Ok(())
 }
 
-fn test_rust(
-    opts: &TestOptions,
-    manifest_path: &Path,
-    manifest: Box<cargo_toml::Manifest>,
-) -> Result<(), failure::Error> {
-    let cargo_args = get_cargo_args(&opts, manifest_path)?;
+fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Result<(), Error> {
+    let cargo_args = get_cargo_args(target, manifest_path, &opts)?;
 
-    let mut product_names = if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
-        services.clone()
-    } else {
-        manifest
-            .bin
-            .iter()
-            .filter_map(|bin| bin.name.as_ref().map(|n| n.as_str()))
-            .collect()
-    };
-    product_names.sort();
-    let num_products = product_names.len();
-
-    let mut cargo_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+    let mut cargo_envs: BTreeMap<_, _> = std::env::vars_os().collect();
     cargo_envs.insert(
         OsString::from("RUSTC_WRAPPER"),
         OsString::from("oasis-build"),
     );
 
-    if opts.verbosity > Verbosity::Quiet {
-        print_status_in(
-            Status::Testing,
-            product_names.join(", "),
-            manifest_path.parent().unwrap(),
-        );
-    }
-
     emit!(cmd.test.start, {
         "project_type": "rust",
-        "num_services": num_products,
         "debug": opts.debug,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
@@ -104,8 +109,9 @@ fn test_rust(
 }
 
 fn get_cargo_args<'a>(
-    opts: &'a TestOptions,
+    target: &'a Target,
     manifest_path: &'a Path,
+    opts: &'a TestOptions,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["test"];
     if opts.verbosity < Verbosity::Normal {
@@ -120,14 +126,8 @@ fn get_cargo_args<'a>(
         cargo_args.push("--release");
     }
 
-    if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
-        for service_name in services.iter() {
-            cargo_args.push("--bin");
-            cargo_args.push(service_name);
-        }
-    } else {
-        cargo_args.push("--bins");
-    }
+    cargo_args.push("--bin");
+    cargo_args.push(&target.name);
 
     cargo_args.push("--manifest-path");
     cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
@@ -140,20 +140,8 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn test_js(
-    opts: &TestOptions,
-    manifest_path: &Path,
-    package_json: serde_json::Map<String, serde_json::Value>,
-) -> Result<(), failure::Error> {
+fn test_js(manifest_path: &Path, opts: &TestOptions) -> Result<(), Error> {
     let package_dir = manifest_path.parent().unwrap();
-
-    if opts.verbosity > Verbosity::Quiet {
-        print_status_in(
-            Status::Testing,
-            package_json["name"].as_str().unwrap(),
-            package_dir,
-        );
-    }
 
     emit!(cmd.test.start, {
         "project_type": "js",
@@ -168,7 +156,7 @@ fn test_js(
     }
     npm_args.extend(opts.tester_args.iter());
 
-    let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+    let mut npm_envs: BTreeMap<_, _> = std::env::vars_os().collect();
     npm_envs.insert(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),

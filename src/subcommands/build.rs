@@ -1,30 +1,28 @@
 use std::{
-    collections::hash_map::Entry,
+    collections::{btree_map::Entry, BTreeMap},
     ffi::OsString,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
-    error::Error,
-    utils::{
-        detect_projects, print_status, print_status_in, DevPhase, ProjectKind, RequestedArtifacts,
-        Status,
-    },
+    errors::Error,
+    utils::{print_status, print_status_in, Status},
+    workspace::{ProjectKind, Target, TargetRef, Workspace},
 };
 
 pub struct BuildOptions<'a> {
-    stack_size: Option<u32>,
-    artifacts: RequestedArtifacts<'a>,
-    debug: bool,
-    wasi: bool,
-    verbosity: Verbosity,
-    builder_args: Vec<&'a str>,
+    pub targets: Vec<&'a str>,
+    pub debug: bool,
+    pub verbosity: Verbosity,
+    pub stack_size: Option<u32>,
+    pub wasi: bool,
+    pub builder_args: Vec<&'a str>,
 }
 
 impl<'a> BuildOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, failure::Error> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, Error> {
         Ok(Self {
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
@@ -35,7 +33,7 @@ impl<'a> BuildOptions<'a> {
                 Err(err) => return Err(err.into()),
             },
             debug: m.is_present("debug"),
-            artifacts: RequestedArtifacts::from_matches(m),
+            targets: m.values_of("TARGETS").unwrap_or_default().collect(),
             wasi: m.is_present("wasi"),
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
@@ -46,39 +44,38 @@ impl<'a> BuildOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for BuildOptions<'a> {
-    fn exec(self) -> Result<(), failure::Error> {
-        build(self)
+    fn exec(self) -> Result<(), Error> {
+        let workspace = crate::workspace::Workspace::populate()?;
+        let targets = workspace.collect_targets(&self.targets)?;
+        build(&workspace, &targets, self)
     }
 }
 
-pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
-    if let RequestedArtifacts::Explicit(artifacts) = &opts.artifacts {
-        if artifacts
-            .iter()
-            .all(|a| a.ends_with(".wasm") || *a == "a.out")
-        {
-            print_status(Status::Building, artifacts.join(", "));
-            for svc in artifacts.iter() {
-                let out_file = Path::new(svc).with_extension("wasm");
-                prep_wasm(&Path::new(svc), &out_file, opts.debug)?;
-            }
-            return Ok(());
+pub fn build(
+    workspace: &Workspace,
+    targets: &[TargetRef],
+    opts: BuildOptions,
+) -> Result<(), failure::Error> {
+    for target_ref in workspace.construct_build_plan(targets)? {
+        let target = &workspace[target_ref];
+        let proj = &workspace[target.project_ref];
+
+        if opts.verbosity > Verbosity::Quiet {
+            print_status_in(
+                Status::Building,
+                &target.name,
+                proj.manifest_path.parent().unwrap(),
+            );
         }
-    }
-    let projects = detect_projects(DevPhase::Build)?;
-    if projects.is_empty() {
-        return Err(Error::DetectProject(format!("{}", std::env::current_dir()?.display())).into());
-    }
-    for proj in projects {
+
         match &proj.kind {
-            ProjectKind::Rust(manifest) => {
-                build_rust(&opts, &proj.manifest_path, manifest)?;
+            ProjectKind::Rust { target_dir } => {
+                build_rust(target, &proj.manifest_path, &target_dir, &opts)?
             }
-            ProjectKind::Javascript(package_json) => {
-                if opts.artifacts != RequestedArtifacts::Unspecified {
-                    continue;
-                }
-                build_js(&opts, &proj.manifest_path, package_json)?;
+            ProjectKind::JavaScript { .. } => build_js(&proj.manifest_path, &opts)?,
+            ProjectKind::Wasm => {
+                let out_file = Path::new(&target.name).with_extension("wasm");
+                prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
             }
         }
     }
@@ -86,37 +83,17 @@ pub fn build(opts: BuildOptions) -> Result<(), failure::Error> {
 }
 
 fn build_rust(
+    target: &Target,
+    manifest_path: &Path,
+    target_dir: &Path,
     opts: &BuildOptions,
-    manifest_path: &PathBuf,
-    manifest: &cargo_toml::Manifest,
 ) -> Result<(), failure::Error> {
-    let cargo_args = get_cargo_args(&opts, manifest_path, &*manifest)?;
-
-    let mut product_names = if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
-        services.clone()
-    } else {
-        manifest
-            .bin
-            .iter()
-            .filter_map(|bin| bin.name.as_ref().map(|s| s.as_str()))
-            .collect()
-    };
-    product_names.sort();
-    let num_products = product_names.len();
+    let cargo_args = get_cargo_args(target, &manifest_path, &opts)?;
 
     let cargo_envs = get_cargo_envs(&opts)?;
 
-    if opts.verbosity > Verbosity::Quiet {
-        print_status_in(
-            Status::Building,
-            product_names.join(", "),
-            manifest_path.parent().unwrap(),
-        );
-    }
-
     emit!(cmd.build.start, {
         "project_type": "rust",
-        "num_services": num_products,
         "wasi": opts.wasi,
         "stack_size": opts.stack_size,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
@@ -127,9 +104,6 @@ fn build_rust(
         return Err(e);
     };
 
-    let target_dir = get_target_dir(manifest_path);
-    // ^ MUST be called after `cargo build` to ensure that a `target` directory exists to be found
-
     let services_dir = target_dir.join("service");
     if !services_dir.is_dir() {
         std::fs::create_dir_all(&services_dir)?;
@@ -139,29 +113,25 @@ fn build_rust(
     wasm_dir.push(if opts.debug { "debug" } else { "release" });
     emit!(cmd.build.prep_wasm);
 
-    let wasm_names = product_names
-        .into_iter()
-        .map(|n| format!("{}.wasm", n))
-        .collect::<Vec<_>>();
+    let wasm_name = format!("{}.wasm", target.name);
     if opts.verbosity > Verbosity::Quiet {
-        print_status(Status::Preparing, wasm_names.join(", "));
+        print_status(Status::Preparing, &wasm_name);
     }
-    for wasm_name in wasm_names {
-        let wasm_file = wasm_dir.join(&wasm_name);
-        if !wasm_file.is_file() {
-            continue;
-        }
-        prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.debug)?;
+    let wasm_file = wasm_dir.join(&wasm_name);
+    if !wasm_file.is_file() {
+        warn!("{} is not a regular file", wasm_file.display());
+        return Ok(());
     }
+    prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.debug)?;
 
     emit!(cmd.build.done);
     Ok(())
 }
 
 fn get_cargo_args<'a>(
+    target: &'a Target,
+    manifest_path: &'a Path,
     opts: &'a BuildOptions,
-    manifest_path: &'a PathBuf,
-    manifest: &'a cargo_toml::Manifest,
 ) -> Result<Vec<&'a str>, failure::Error> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
     if opts.verbosity < Verbosity::Normal {
@@ -176,23 +146,8 @@ fn get_cargo_args<'a>(
         cargo_args.push("--release");
     }
 
-    if let RequestedArtifacts::Explicit(services) = &opts.artifacts {
-        for service_name in services.iter() {
-            let manifest_has_service = manifest.bin.iter().any(|bin| {
-                *service_name == bin.name.as_ref().map(String::as_str).unwrap_or_default()
-            });
-            if !manifest_has_service {
-                return Err(failure::format_err!(
-                    "could not find service binary `{}` in crate",
-                    service_name
-                ));
-            }
-            cargo_args.push("--bin");
-            cargo_args.push(service_name);
-        }
-    } else {
-        cargo_args.push("--bins");
-    }
+    cargo_args.push("--bin");
+    cargo_args.push(&target.name);
 
     if !opts.builder_args.is_empty() {
         cargo_args.extend(opts.builder_args.iter());
@@ -203,10 +158,8 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn get_cargo_envs(
-    opts: &BuildOptions,
-) -> Result<std::collections::HashMap<OsString, OsString>, failure::Error> {
-    let mut envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+fn get_cargo_envs(opts: &BuildOptions) -> Result<BTreeMap<OsString, OsString>, failure::Error> {
+    let mut envs: BTreeMap<_, _> = std::env::vars_os().collect();
     if let Some(stack_size) = opts.stack_size {
         let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
         match envs.entry(OsString::from("RUSTFLAGS")) {
@@ -223,32 +176,6 @@ fn get_cargo_envs(
         );
     }
     Ok(envs)
-}
-
-fn test_for_target_dir(path: &PathBuf) -> Option<PathBuf> {
-    let maybe_target = path.join("target");
-    if maybe_target.join("wasm32-wasi").is_dir() {
-        Some(maybe_target)
-    } else {
-        None
-    }
-}
-
-pub fn get_target_dir(manifest_path: &PathBuf) -> PathBuf {
-    // Ideally this would use `cargo --build-plan`, but that resets incremental compilation,
-    // for some reason. This is the next best thing.
-    std::env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .ok()
-        .or_else(|| test_for_target_dir(manifest_path))
-        .or_else(|| {
-            manifest_path.parent().and_then(|workdir| {
-                workdir
-                    .ancestors()
-                    .find_map(|d| test_for_target_dir(&d.to_path_buf()))
-            })
-        })
-        .unwrap_or_else(|| PathBuf::from("target"))
 }
 
 pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(), failure::Error> {
@@ -289,23 +216,8 @@ fn externalize_mem(module: &mut walrus::Module) {
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
-fn build_js(
-    opts: &BuildOptions,
-    manifest_path: &PathBuf,
-    package_json: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(), failure::Error> {
+fn build_js(manifest_path: &Path, opts: &BuildOptions) -> Result<(), failure::Error> {
     let package_dir = manifest_path.parent().unwrap();
-
-    if opts.verbosity > Verbosity::Quiet {
-        print_status_in(
-            Status::Building,
-            package_json
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("app"),
-            package_dir,
-        );
-    }
 
     emit!(cmd.build.start, { "project_type": "js" });
 

@@ -39,11 +39,16 @@ def oenv(request):
 
             self.env = init_env
             git_dir = osp.dirname(shutil.which('git'))
+            cargo_home = osp.join(os.environ['HOME'], '.cargo')
             self.env.update({
-                'CARGO_HOME': osp.join(os.environ['HOME'], '.cargo'),
-                'RUSTUP_HOME': osp.join(os.environ['HOME'], '.rustup'),
-                'HOME': self.home_dir,
-                'PATH': f'{self.bin_dir}:{TARGET_DIR}:/usr/bin/:/bin:{git_dir}',
+                'CARGO_HOME':
+                cargo_home,
+                'RUSTUP_HOME':
+                osp.join(os.environ['HOME'], '.rustup'),
+                'HOME':
+                self.home_dir,
+                'PATH':
+                f'{self.bin_dir}:{TARGET_DIR}:{cargo_home}/bin:/usr/bin/:/bin:{git_dir}',
             })
 
             self._configured = False
@@ -97,6 +102,12 @@ def oenv(request):
             data_dir = osp.join(tempdir, '.local', 'share')
 
         yield OasisEnv(init_env, tempdir, config_dir, data_dir)
+
+
+@pytest.fixture()
+def temp_dir():
+    with tempfile.TemporaryDirectory() as tempdir:
+        yield tempdir
 
 
 class MockTool:

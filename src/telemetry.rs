@@ -9,6 +9,8 @@ use flate2::{write::GzEncoder, Compression};
 use fs2::FileExt;
 use once_cell::sync::OnceCell;
 
+use crate::errors::{CliError, Error};
+
 const SUBMIT_URL: &str = "https://telemetry.oasiscloud.io";
 const UPLOAD_THRESHOLD_FILESIZE: u64 = 50 * 1024; // 50 KiB
 
@@ -29,7 +31,7 @@ struct Event {
     session_id: u32,
 }
 
-pub fn init(config: &crate::config::Config) -> Result<(), failure::Error> {
+pub fn init(config: &crate::config::Config) -> Result<(), Error> {
     let tcfg = &config.telemetry();
     if !tcfg.enabled {
         return Ok(());
@@ -59,18 +61,18 @@ pub fn init(config: &crate::config::Config) -> Result<(), failure::Error> {
                 .read(true)
                 .append(true)
                 .open(&metrics_path)
-                .map_err(|err| crate::error::Error::OpenLogFile(err.to_string()))?,
+                .map_err(|err| CliError::OpenLogFile(err.to_string()))?,
         )),
     })
     .ok();
     Ok(())
 }
 
-pub fn metrics_path() -> Result<std::path::PathBuf, failure::Error> {
+pub fn metrics_path() -> Result<std::path::PathBuf, Error> {
     Ok(crate::oasis_dir!(data)?.join("metrics.jsonl"))
 }
 
-pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failure::Error> {
+pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), Error> {
     let Telemetry {
         session_id,
         log_file,
@@ -84,7 +86,7 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failur
     let mut log_file = log_file.borrow_mut();
     log_file.lock_shared()?;
 
-    let emit_to_log = || -> Result<(), failure::Error> {
+    let emit_to_log = || -> Result<(), Error> {
         writeln!(
             log_file,
             "{}",
@@ -111,7 +113,7 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), failur
     result
 }
 
-pub fn upload() -> Result<(), failure::Error> {
+pub fn upload() -> Result<(), Error> {
     let Telemetry {
         user_id, log_file, ..
     } = match TLM.get() {
@@ -124,7 +126,7 @@ pub fn upload() -> Result<(), failure::Error> {
 
     log_file.lock_exclusive()?;
 
-    let mut try_upload = || -> Result<(), failure::Error> {
+    let mut try_upload = || -> Result<(), Error> {
         log_file.seek(std::io::SeekFrom::Start(0))?;
         let mut rd = BufReader::new(&*log_file);
         let mut log = Vec::new();
