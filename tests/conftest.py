@@ -48,12 +48,13 @@ def oenv(request):
 
             self._configured = False
 
-        def run(self, cmd, env=None, input='', **kwargs):  # pylint:disable=redefined-builtin
+        def run(self, cmd, env=None, cwd=None, input='', **kwargs):  # pylint:disable=redefined-builtin
             if not self._configured:
                 self.default_config()
             env = env if env else {}
             env.update(self.env)
-            return self._run(cmd, env=env, input=input, **kwargs)
+            cwd = cwd or self.home_dir
+            return self._run(cmd, env=env, cwd=cwd, input=input, **kwargs)
 
         def no_config(self):
             self._configured = True

@@ -55,7 +55,7 @@ fn main() {
         ("test", Some(m)) => TestOptions::new(&m, &config).exec(),
         ("clean", Some(_)) => clean(),
         ("ifextract", Some(m)) => ifextract(
-            m.value_of("SERVICE_URL").unwrap(),
+            m.value_of("SERVICE_PATH").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         ("deploy", Some(m)) => DeployOptions::new(&m, &config).exec(),
