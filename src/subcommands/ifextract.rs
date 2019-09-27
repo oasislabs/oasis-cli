@@ -1,9 +1,14 @@
-use oasis_rpc::import::{ImportedService, Importer};
+use oasis_rpc::import::{ImportLocation, ImportedService, Importer};
 
-pub fn ifextract(service_url: &str, out_dir: &std::path::Path) -> Result<(), failure::Error> {
+pub fn ifextract(import_location: &str, out_dir: &std::path::Path) -> Result<(), failure::Error> {
     crate::emit!(cmd.ifextract);
+    let import_location = if let Ok(url) = import_location.parse() {
+        ImportLocation::Url(url)
+    } else {
+        ImportLocation::Path(std::path::PathBuf::from(import_location))
+    };
     for ImportedService { interface, .. } in
-        Importer::for_url(service_url, std::env::current_dir().unwrap())?.import_all()?
+        Importer::for_location(import_location, &std::env::current_dir().unwrap())?.import_all()?
     {
         if interface.name.contains(std::path::MAIN_SEPARATOR) {
             return Err(failure::format_err!(

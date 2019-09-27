@@ -60,7 +60,7 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
             (@arg out_dir: -o --out +takes_value
                 "Where to write the interface.json(s). \
                  Defaults to current directory. Pass `-` to write to stdout.")
-            (@arg SERVICE_URL: +required "The URL of the service.wasm file(s)")
+            (@arg SERVICE_PATH: +required "The path to service.wasm file")
         )
         (@subcommand deploy =>
             (about: "Deploy services to the Oasis blockchain")
