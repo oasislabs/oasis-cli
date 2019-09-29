@@ -6,7 +6,7 @@ use crate::{
     emit,
     errors::Error,
     utils::{print_status_in, Status},
-    workspace::{ProjectKind, Target, TargetRef, Workspace},
+    workspace::{ProjectKind, Target, Workspace},
 };
 
 pub struct TestOptions<'a> {
@@ -48,18 +48,13 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
             builder_args: Vec::new(),
         };
         super::build(&workspace, &targets, build_opts)?;
-        test(&workspace, &targets, self)
+        test(&targets, self)
     }
 }
 
-pub fn test(
-    workspace: &Workspace,
-    targets: &[TargetRef],
-    opts: TestOptions,
-) -> Result<(), failure::Error> {
-    for target_ref in targets {
-        let target = &workspace[*target_ref];
-        let proj = &workspace[target.project_ref];
+pub fn test(targets: &[&Target], opts: TestOptions) -> Result<(), failure::Error> {
+    for target in targets {
+        let proj = &target.project;
         let print_status = || {
             if opts.verbosity > Verbosity::Quiet {
                 print_status_in(

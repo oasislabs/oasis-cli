@@ -6,10 +6,9 @@ use crate::{
 
 pub fn clean(target_strs: &[&str]) -> Result<(), crate::errors::Error> {
     let workspace = Workspace::populate()?;
-    let target_refs = workspace.collect_targets(target_strs)?;
-    for project_ref in workspace.projects_of(&target_refs) {
-        let proj = &workspace[project_ref];
-        match proj.kind {
+    let targets = workspace.collect_targets(target_strs)?;
+    for proj in workspace.projects_of(&targets) {
+        match &proj.kind {
             ProjectKind::Rust { .. } => {
                 emit!(cmd.clean, "rust");
                 run_cmd(

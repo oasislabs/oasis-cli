@@ -8,7 +8,7 @@ use crate::{
     emit,
     errors::{Error, ProfileError, ProfileErrorKind},
     utils::{print_status_in, Status},
-    workspace::{ProjectKind, TargetRef, Workspace},
+    workspace::{ProjectKind, Target, Workspace},
 };
 
 macro_rules! print_need_deploy_key_message {
@@ -88,18 +88,13 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
             builder_args: Vec::new(),
         };
         super::build(&workspace, &targets, build_opts)?;
-        deploy(&workspace, &targets, self)
+        deploy(&targets, self)
     }
 }
 
-pub fn deploy(
-    workspace: &Workspace,
-    targets: &[TargetRef],
-    opts: DeployOptions,
-) -> Result<(), failure::Error> {
-    for target_ref in targets {
-        let target = &workspace[*target_ref];
-        let proj = &workspace[target.project_ref];
+pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::Error> {
+    for target in targets {
+        let proj = &target.project;
         match &proj.kind {
             ProjectKind::JavaScript { deployable, .. } if *deployable => {
                 if opts.verbosity > Verbosity::Quiet {

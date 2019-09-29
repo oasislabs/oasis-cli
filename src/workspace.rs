@@ -1,7 +1,8 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, RefCell, UnsafeCell},
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
 use oasis_rpc::import::ImportLocation;
@@ -13,7 +14,12 @@ use crate::{
 
 pub struct Workspace {
     root: PathBuf,
-    projects: RefCell<Vec<Project>>,
+
+    // Invariant 1: `Workspace.projects` append-only; `Project.targets` is, too.
+    // Invariant 2: Projects do not move in memory and are immutable except for
+    //              the safe (panicking) interior mutability of `Target`.
+    // These two invariants allow `Target`s to contain direct parent pointers.
+    projects: UnsafeCell<Vec<Pin<Box<Project>>>>,
 }
 
 impl Workspace {
@@ -46,29 +52,26 @@ impl Workspace {
             {
                 continue;
             }
-            let proj = Project::from_manifest(
-                manifest_path,
-                ProjectRef {
-                    index: projects.len(),
-                },
-            )?;
+            let proj = Project::from_manifest(manifest_path)?;
             project_dirs.push((mf_ty, proj.manifest_path.parent().unwrap().to_path_buf()));
             projects.push(proj);
         }
 
         Ok(Self {
             root: repo_root.to_path_buf(),
-            projects: RefCell::new(projects),
+            projects: UnsafeCell::new(projects),
         })
     }
 
-    pub fn collect_targets(&self, target_strs: &[&str]) -> Result<Vec<TargetRef>, Error> {
+    /// Collects the set of top-level dependencies that are matched by the input `target_strs`.
+    /// A valid target str is either the name of a service or a path in the workspace that
+    /// points to a directory that contains services. Like git, `:/` refers to the workspace root.
+    pub fn collect_targets(&self, target_strs: &[&str]) -> Result<Vec<&Target>, Error> {
         let cwd = std::env::current_dir()?;
-        let cwd_str = cwd.to_str().unwrap();
         let target_strs = if target_strs.is_empty() {
-            std::borrow::Cow::Owned(vec![cwd_str])
+            &["."]
         } else {
-            std::borrow::Cow::Borrowed(target_strs)
+            target_strs
         };
 
         let mut service_names = BTreeSet::new();
@@ -105,23 +108,24 @@ impl Workspace {
             }
         }
 
-        let mut targets = Vec::new();
+        let mut targets: Vec<&Target> = Vec::new();
 
         for path in wasm_paths.iter() {
             if path.is_file() {
-                let p_idx = self.projects.borrow().len();
-                let target = Target {
+                let mut proj = Box::pin(Project {
+                    manifest_path: path.to_path_buf(),
+                    kind: ProjectKind::Wasm,
+                    targets: Vec::with_capacity(1),
+                });
+                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
+                // ^ Safe by Invariant 2.
+                proj.targets.push(Target {
                     name: path.to_str().unwrap().to_string(),
                     dependencies: BTreeMap::new(),
                     status: Cell::new(DependencyStatus::Resolved),
-                    project_ref: ProjectRef { index: p_idx },
-                };
-                self.projects.borrow_mut().push(Project {
-                    manifest_path: path.to_path_buf(),
-                    kind: ProjectKind::Wasm,
-                    targets: vec![target],
+                    project: proj_ref,
                 });
-                targets.push(TargetRef::new(p_idx, 0));
+                unsafe { &mut *self.projects.get() }.push(proj); // Safe by Invariant 2.
             } else {
                 warn!("`{}` does not exist", path.display());
             }
@@ -129,11 +133,10 @@ impl Workspace {
 
         for (path, target_str) in search_paths.iter() {
             let mut found_proj = false;
-            for (p_idx, proj) in self.projects.borrow().iter().enumerate() {
+            for proj in self.projects().iter() {
                 if proj.manifest_path.starts_with(path) {
                     found_proj = true;
-                    targets
-                        .extend((0..proj.targets.len()).map(|t_idx| TargetRef::new(p_idx, t_idx)));
+                    targets.extend(proj.targets.iter());
                 }
             }
             if !found_proj {
@@ -143,10 +146,10 @@ impl Workspace {
 
         for service_name in service_names {
             let mut found_services = Vec::new();
-            for (p_idx, p) in self.projects.borrow().iter().enumerate() {
-                for (t_idx, t) in p.targets.iter().enumerate() {
-                    if t.name == service_name {
-                        found_services.push(TargetRef::new(p_idx, t_idx))
+            for p in self.projects().iter() {
+                for target in p.targets.iter() {
+                    if target.name == service_name {
+                        found_services.push(target);
                     }
                 }
             }
@@ -163,38 +166,29 @@ impl Workspace {
 
     /// Returns the input targets in topologically sorted order.
     /// Returns an error if a dependency is missing or cyclic.
-    pub fn construct_build_plan(&self, target_refs: &[TargetRef]) -> Result<Vec<TargetRef>, Error> {
+    pub fn construct_build_plan<'a>(
+        &'a self,
+        targets: &[&'a Target],
+    ) -> Result<Vec<&'a Target>, Error> {
         let mut build_plan = Vec::new();
-        for target_ref in target_refs {
-            self.resolve_dependencies_of(*target_ref, &mut build_plan)?;
+        for target in targets {
+            self.resolve_dependencies_of(target, &mut build_plan)?;
         }
         Ok(build_plan)
     }
 
-    pub fn projects_of(&self, target_refs: &[TargetRef]) -> Vec<ProjectRef> {
-        let mut project_sel = vec![false; self.projects.borrow().len()];
-        for &TargetRef { project_ref, .. } in target_refs.iter() {
-            project_sel[project_ref.index] = true;
-        }
-        project_sel
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, selected)| {
-                if selected {
-                    Some(ProjectRef { index: i })
-                } else {
-                    None
-                }
-            })
-            .collect()
+    pub fn projects_of(&self, targets: &[&Target]) -> Vec<&Project> {
+        let mut projects: Vec<&Project> = targets.iter().map(|t| t.project).collect();
+        projects.sort_unstable_by_key(|p| *p as *const Project);
+        projects.dedup_by_key(|p| *p as *const Project);
+        projects
     }
 
-    fn resolve_dependencies_of(
-        &self,
-        target_ref: TargetRef,
-        build_plan: &mut Vec<TargetRef>,
+    fn resolve_dependencies_of<'a>(
+        &'a self,
+        target: &'a Target,
+        build_plan: &mut Vec<&'a Target>,
     ) -> Result<(), Error> {
-        let target = &self[target_ref];
         if let DependencyStatus::Resolved = target.status.get() {
             return Ok(());
         }
@@ -206,17 +200,12 @@ impl Workspace {
                     if path.is_absolute() {
                         path.to_path_buf()
                     } else {
-                        self[target.project_ref]
-                            .manifest_path
-                            .parent()
-                            .unwrap()
-                            .join(path)
+                        target.project.manifest_path.parent().unwrap().join(path)
                     }
                 }
                 _ => continue,
             };
-            let dep_target_ref = self.lookup_target(&dep_name, &dep_path)?;
-            let dep_target = &self[dep_target_ref];
+            let dep_target = self.lookup_target(&dep_name, &dep_path)?;
             if let DependencyStatus::Visited = dep_target.status.get() {
                 return Err(WorkspaceError::CircularDependency(
                     target.name.to_string(),
@@ -224,47 +213,33 @@ impl Workspace {
                 )
                 .into());
             }
-            self.resolve_dependencies_of(dep_target_ref, build_plan)?;
-            *dep = Dependency::Resolved(dep_target_ref);
+            self.resolve_dependencies_of(dep_target, build_plan)?;
+            *dep =
+                Dependency::Resolved(unsafe { std::mem::transmute::<&_, &'static _>(dep_target) });
+            // ^ Safe by Invariants 1 and 2.
         }
         target.status.replace(DependencyStatus::Resolved);
-        build_plan.push(target_ref);
+        build_plan.push(target);
         Ok(())
     }
 
-    fn lookup_target(&self, name: &str, path: &Path) -> Result<TargetRef, Error> {
-        for (p_idx, proj) in self.projects.borrow().iter().enumerate() {
+    fn lookup_target(&self, name: &str, path: &Path) -> Result<&Target, Error> {
+        for proj in self.projects().iter() {
             if !path.starts_with(proj.manifest_path.parent().unwrap()) {
                 continue;
             }
-            for (t_idx, target) in proj.targets.iter().enumerate() {
+            for target in proj.targets.iter() {
                 if target.name == name {
-                    return Ok(TargetRef::new(p_idx, t_idx));
+                    return Ok(target);
                 }
             }
         }
         // TODO: support building across workspaces
         Err(WorkspaceError::NotFound(format!("{} ({})", name, path.display())).into())
     }
-}
 
-#[derive(Clone, Copy, Debug)]
-pub struct ProjectRef {
-    index: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct TargetRef {
-    project_ref: ProjectRef,
-    index: usize,
-}
-
-impl TargetRef {
-    fn new(p_idx: usize, t_idx: usize) -> Self {
-        TargetRef {
-            project_ref: ProjectRef { index: p_idx },
-            index: t_idx,
-        }
+    fn projects(&self) -> &[Pin<Box<Project>>] {
+        unsafe { (&*self.projects.get()).as_slice() } // Safe by Invariant 2.
     }
 }
 
@@ -273,24 +248,6 @@ enum DependencyStatus {
     Unresolved,
     Visited,
     Resolved,
-}
-
-impl std::ops::Index<ProjectRef> for Workspace {
-    type Output = Project;
-
-    fn index(&self, p_ref: ProjectRef) -> &Self::Output {
-        unsafe { &self.projects.try_borrow_unguarded().unwrap()[p_ref.index] }
-        // ^ Projects are only appended and never, themselves, modified.
-        //   The immutable borrow is always valid.
-    }
-}
-
-impl std::ops::Index<TargetRef> for Workspace {
-    type Output = Target;
-
-    fn index(&self, t_ref: TargetRef) -> &Self::Output {
-        &self[t_ref.project_ref].targets[t_ref.index]
-    }
 }
 
 #[derive(Debug)]
@@ -308,7 +265,7 @@ pub enum ProjectKind {
 }
 
 impl Project {
-    fn from_manifest(manifest_path: &Path, project_ref: ProjectRef) -> Result<Self, Error> {
+    fn from_manifest(manifest_path: &Path) -> Result<Pin<Box<Self>>, Error> {
         match manifest_path.file_name().and_then(|p| p.to_str()) {
             Some("Cargo.toml") => {
                 let metadata: CargoMetadata = serde_json::from_slice(
@@ -322,7 +279,17 @@ impl Project {
                     )?
                     .stdout,
                 )?;
-                let mut targets = Vec::new();
+
+                let mut proj = Box::pin(Self {
+                    manifest_path: manifest_path.to_path_buf(),
+                    kind: ProjectKind::Rust {
+                        target_dir: metadata.target_directory,
+                    },
+                    targets: Vec::new(),
+                });
+                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
+                // Safe by Invariant 2.
+
                 for pkg in metadata.packages {
                     for target in pkg.targets {
                         if !target.kind.iter().any(|tk| tk == "bin") {
@@ -347,27 +314,39 @@ impl Project {
                                 .unwrap_or_default(),
                             None => BTreeMap::default(),
                         };
-                        targets.push(Target {
-                            project_ref,
+                        proj.targets.push(Target {
+                            project: proj_ref,
                             name: target.name.to_string(),
                             dependencies: deps,
                             status: Cell::new(DependencyStatus::Unresolved),
                         });
                     }
                 }
-                Ok(Self {
-                    manifest_path: manifest_path.to_path_buf(),
-                    kind: ProjectKind::Rust {
-                        target_dir: metadata.target_directory,
-                    },
-                    targets,
-                })
+                Ok(proj)
             }
             Some("package.json") => {
+                // TODO: JS project dependency resolution
+
                 let manifest: serde_json::Map<String, serde_json::Value> =
                     serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
-                // TODO: JS project dependency resolution
-                let targets = if manifest
+
+                let npm_scripts = manifest.get("scripts").and_then(|s| s.as_object());
+                let mut proj = Box::pin(Self {
+                    manifest_path: manifest_path.to_path_buf(),
+                    kind: ProjectKind::JavaScript {
+                        testable: npm_scripts
+                            .map(|s| s.contains_key("test"))
+                            .unwrap_or_default(),
+                        deployable: npm_scripts
+                            .map(|s| s.contains_key("deploy"))
+                            .unwrap_or_default(),
+                    },
+                    targets: Vec::new(),
+                });
+                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
+                // Safe by Invariant 2.
+
+                proj.targets = if manifest
                     .get("devDependencies")
                     .and_then(|deps| deps.get("lerna"))
                     .map(|lerna| !lerna.is_null())
@@ -383,7 +362,7 @@ impl Project {
                                 .filter_map(|de| match de {
                                     Ok(de) if de.file_type().ok()?.is_dir() => Some(Target {
                                         name: de.file_name().to_str().unwrap().to_string(),
-                                        project_ref,
+                                        project: proj_ref,
                                         dependencies: Default::default(),
                                         status: Cell::new(DependencyStatus::Resolved),
                                     }),
@@ -399,24 +378,13 @@ impl Project {
                             .and_then(|name| name.as_str())
                             .map(|name| name.to_string())
                             .unwrap_or_default(),
-                        project_ref,
+                        project: proj_ref,
                         dependencies: Default::default(),
                         status: Cell::new(DependencyStatus::Resolved),
                     }]
                 };
-                let npm_scripts = manifest.get("scripts").and_then(|s| s.as_object());
-                Ok(Self {
-                    manifest_path: manifest_path.to_path_buf(),
-                    kind: ProjectKind::JavaScript {
-                        testable: npm_scripts
-                            .map(|s| s.contains_key("test"))
-                            .unwrap_or_default(),
-                        deployable: npm_scripts
-                            .map(|s| s.contains_key("deploy"))
-                            .unwrap_or_default(),
-                    },
-                    targets,
-                })
+
+                Ok(proj)
             }
             _ => unreachable!(
                 "`Project::from_manifest` requires a Cargo.toml or package.json, but received {}",
@@ -429,7 +397,7 @@ impl Project {
 #[derive(Debug)]
 pub struct Target {
     pub name: String,
-    pub project_ref: ProjectRef,
+    pub project: &'static Project,
     dependencies: BTreeMap<String, RefCell<Dependency>>,
     status: Cell<DependencyStatus>,
 }
@@ -437,7 +405,7 @@ pub struct Target {
 #[derive(Debug)]
 enum Dependency {
     Unresolved(ImportLocation),
-    Resolved(TargetRef),
+    Resolved(&'static Target), // `Workspace` is an arena that contains the referenced `Target`.
 }
 
 #[derive(Debug, Deserialize)]

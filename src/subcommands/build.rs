@@ -9,7 +9,7 @@ use crate::{
     emit,
     errors::Error,
     utils::{print_status, print_status_in, Status},
-    workspace::{ProjectKind, Target, TargetRef, Workspace},
+    workspace::{ProjectKind, Target, Workspace},
 };
 
 pub struct BuildOptions<'a> {
@@ -53,13 +53,11 @@ impl<'a> super::ExecSubcommand for BuildOptions<'a> {
 
 pub fn build(
     workspace: &Workspace,
-    targets: &[TargetRef],
+    targets: &[&Target],
     opts: BuildOptions,
 ) -> Result<(), failure::Error> {
-    for target_ref in workspace.construct_build_plan(targets)? {
-        let target = &workspace[target_ref];
-        let proj = &workspace[target.project_ref];
-
+    for target in workspace.construct_build_plan(targets)? {
+        let proj = target.project;
         if opts.verbosity > Verbosity::Quiet {
             print_status_in(
                 Status::Building,
