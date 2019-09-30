@@ -29,10 +29,10 @@ impl Workspace {
         let repo_root = cwd
             .ancestors()
             .find(|a| a.join(".git").is_dir())
-            .ok_or_else(|| WorkspaceError::NotFound(cwd.display().to_string()))?;
+            .ok_or_else(|| WorkspaceError::NoWorkspace(cwd.display().to_string()))?;
 
         let walk_builder = ignore::WalkBuilder::new(repo_root);
-        let walker = walk_builder.build().filter_map(|de| match de {
+        let manifest_walker = walk_builder.build().filter_map(|de| match de {
             Ok(de)
                 if de.file_type().map(|ft| ft.is_file()).unwrap_or_default()
                     && (de.file_name() == "Cargo.toml" || de.file_name() == "package.json") =>
@@ -44,7 +44,7 @@ impl Workspace {
 
         let mut projects = Vec::new();
         let mut project_dirs = Vec::new();
-        for manifest_de in walker {
+        for manifest_de in manifest_walker {
             let manifest_path = manifest_de.path();
             let mf_ty = manifest_de.file_name().to_owned();
             if project_dirs
@@ -109,7 +109,7 @@ impl Workspace {
             }
         }
 
-        let mut targets: Vec<&Target> = Vec::new();
+        let mut targets = Vec::new();
 
         for path in wasm_paths.iter() {
             if !path.is_file() {
@@ -234,8 +234,7 @@ impl Workspace {
                 }
             }
         }
-        // TODO: support building across workspaces
-        Err(WorkspaceError::NotFound(format!("{} ({})", name, path.display())).into())
+        Err(WorkspaceError::MissingDependency(format!("{} ({})", name, path.display())).into())
     }
 
     fn projects(&self) -> &[Pin<Box<Project>>] {
@@ -324,8 +323,6 @@ impl Project {
                 Ok(proj)
             }
             Some("package.json") => {
-                // TODO: JS project dependency resolution
-
                 let manifest: serde_json::Map<String, serde_json::Value> =
                     serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
 
