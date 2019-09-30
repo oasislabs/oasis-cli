@@ -15,10 +15,11 @@ use crate::{
 pub struct Workspace {
     root: PathBuf,
 
-    // Invariant 1: `Workspace.projects` append-only; `Project.targets` is, too.
-    // Invariant 2: Projects do not move in memory and are immutable except for
-    //              the safe (panicking) interior mutability of `Target`.
-    // These two invariants allow `Target`s to contain direct parent pointers.
+    // *Note*: Unsafety allows a `Target`s to contain a reference to is containing `Project`.
+    // This makes it possible to work directly with `&Target`s and not some extra structure.
+    // The only requirement is that a `Target` is dropped before its containing `Project`
+    // Pin<Box<ing>> the `Project` means that it's not moving--even if the `Vec` reallocates.
+    // Invariant: `Projects` are never removed from the `Vec`.
     projects: UnsafeCell<Vec<Pin<Box<Project>>>>,
 }
 
@@ -111,24 +112,23 @@ impl Workspace {
         let mut targets: Vec<&Target> = Vec::new();
 
         for path in wasm_paths.iter() {
-            if path.is_file() {
-                let mut proj = Box::pin(Project {
-                    manifest_path: path.to_path_buf(),
-                    kind: ProjectKind::Wasm,
-                    targets: Vec::with_capacity(1),
-                });
-                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
-                // ^ Safe by Invariant 2.
-                proj.targets.push(Target {
-                    name: path.to_str().unwrap().to_string(),
-                    dependencies: BTreeMap::new(),
-                    status: Cell::new(DependencyStatus::Resolved),
-                    project: proj_ref,
-                });
-                unsafe { &mut *self.projects.get() }.push(proj); // Safe by Invariant 2.
-            } else {
+            if !path.is_file() {
                 warn!("`{}` does not exist", path.display());
+                continue;
             }
+            let mut proj = Box::pin(Project {
+                manifest_path: path.to_path_buf(),
+                kind: ProjectKind::Wasm,
+                targets: Vec::with_capacity(1),
+            });
+            let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+            proj.targets.push(Target {
+                name: path.to_str().unwrap().to_string(),
+                dependencies: BTreeMap::new(),
+                status: Cell::new(DependencyStatus::Resolved),
+                project: proj_ref,
+            });
+            unsafe { &mut *self.projects.get() }.push(proj); // @see `struct Workspace`
         }
 
         for (path, target_str) in search_paths.iter() {
@@ -216,7 +216,7 @@ impl Workspace {
             self.resolve_dependencies_of(dep_target, build_plan)?;
             *dep =
                 Dependency::Resolved(unsafe { std::mem::transmute::<&_, &'static _>(dep_target) });
-            // ^ Safe by Invariants 1 and 2.
+            // ^ @see `enum Dependency`
         }
         target.status.replace(DependencyStatus::Resolved);
         build_plan.push(target);
@@ -239,7 +239,7 @@ impl Workspace {
     }
 
     fn projects(&self) -> &[Pin<Box<Project>>] {
-        unsafe { (&*self.projects.get()).as_slice() } // Safe by Invariant 2.
+        unsafe { (&*self.projects.get()).as_slice() } // @see `struct Workspace`
     }
 }
 
@@ -287,8 +287,7 @@ impl Project {
                     },
                     targets: Vec::new(),
                 });
-                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
-                // Safe by Invariant 2.
+                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
 
                 for pkg in metadata.packages {
                     for target in pkg.targets {
@@ -343,8 +342,7 @@ impl Project {
                     },
                     targets: Vec::new(),
                 });
-                let proj_ref = unsafe { &*(&proj as *const Pin<Box<Project>> as *const Project) };
-                // Safe by Invariant 2.
+                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
 
                 proj.targets = if manifest
                     .get("devDependencies")
@@ -405,7 +403,9 @@ pub struct Target {
 #[derive(Debug)]
 enum Dependency {
     Unresolved(ImportLocation),
-    Resolved(&'static Target), // `Workspace` is an arena that contains the referenced `Target`.
+
+    // The `'static` is with respect to the `Target` that will forever own this `Dependency`
+    Resolved(&'static Target),
 }
 
 #[derive(Debug, Deserialize)]
