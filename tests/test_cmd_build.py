@@ -23,7 +23,10 @@ def test_build_multiproj(oenv, temp_dir):
     assert 'no service named `e` found' in cp.stderr
 
     cp = oenv.run('oasis build ./asdf', cwd=multiproj_dir, check=False, stderr=PIPE)
-    assert 'no services found in `./asdf`' in cp.stderr
+    assert 'the path `./asdf` does not exist' in cp.stderr
+
+    cp = oenv.run('oasis build /', cwd=multiproj_dir, check=False, stderr=PIPE)
+    assert 'the path `/` exists outside of this workspace' in cp.stderr
 
     # test build success
     oenv.run('oasis build', cwd=multiproj_dir)

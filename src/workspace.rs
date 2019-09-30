@@ -140,6 +140,14 @@ impl Workspace {
         }
 
         for (path, target_str) in search_paths.iter() {
+            if !path.exists() {
+                warn!("the path `{}` does not exist", target_str);
+                continue;
+            }
+            if !path.starts_with(&self.root) {
+                warn!("the path `{}` exists outside of this workspace", target_str);
+                continue;
+            }
             let mut found_proj = false;
             for proj in self.projects().iter() {
                 if proj.manifest_path.starts_with(path) {
