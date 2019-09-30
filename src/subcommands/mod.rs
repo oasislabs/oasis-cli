@@ -7,6 +7,8 @@ mod init;
 mod test;
 pub mod toolchain;
 
+use crate::errors::Error;
+
 pub use build::{build, BuildOptions};
 pub use chain::run_chain;
 pub use clean::clean;
@@ -16,11 +18,11 @@ pub use init::{init, InitOptions};
 pub use test::{test, TestOptions};
 
 pub trait ExecSubcommand {
-    fn exec(self) -> Result<(), failure::Error>;
+    fn exec(self) -> Result<(), Error>;
 }
 
-impl<T: ExecSubcommand> ExecSubcommand for Result<T, failure::Error> {
-    fn exec(self) -> Result<(), failure::Error> {
+impl<T: ExecSubcommand> ExecSubcommand for Result<T, Error> {
+    fn exec(self) -> Result<(), Error> {
         self?.exec()
     }
 }

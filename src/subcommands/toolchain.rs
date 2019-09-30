@@ -3,7 +3,10 @@ use std::{
     str::FromStr,
 };
 
-use crate::{error::Error, oasis_dir, utils};
+use crate::{
+    errors::{CliError, Error},
+    oasis_dir, utils,
+};
 
 const OASIS_GENESIS_YEAR: u8 = 19;
 const WEEKS_IN_YEAR: u8 = 54;
@@ -20,12 +23,12 @@ cfg_if::cfg_if! {
     }
 }
 
-pub fn installed_release() -> Result<Release, failure::Error> {
+pub fn installed_release() -> Result<Release, Error> {
     let installed_release_file = oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE);
     Ok(serde_json::from_slice(&fs::read(installed_release_file)?)?)
 }
 
-pub fn set(version: &str) -> Result<(), failure::Error> {
+pub fn set(version: &str) -> Result<(), Error> {
     if version == "current" {
         // ^ This is effectively a post-install hook.
         let rustup = std::env::var("CARGO_HOME")
@@ -70,7 +73,7 @@ pub fn set(version: &str) -> Result<(), failure::Error> {
 
     let release = match Release::for_version(requested_version, tools_client.fetch_manifest()?) {
         Some(release) => release,
-        None => return Err(Error::UnknownToolchain(version.to_string()).into()),
+        None => return Err(CliError::UnknownToolchain(version.to_string()).into()),
     };
 
     if release == installed_release {
@@ -169,7 +172,7 @@ impl PartialOrd for ReleaseVersion {
 }
 
 impl FromStr for ReleaseVersion {
-    type Err = failure::Error;
+    type Err = Error;
 
     fn from_str(version: &str) -> Result<Self, Self::Err> {
         Ok(match version {
@@ -188,10 +191,10 @@ impl FromStr for ReleaseVersion {
                             year,
                         }
                     } else {
-                        return Err(Error::UnknownToolchain(version.to_string()).into());
+                        return Err(CliError::UnknownToolchain(version.to_string()).into());
                     }
                 }
-                _ => return Err(Error::UnknownToolchain(version.to_string()).into()),
+                _ => return Err(CliError::UnknownToolchain(version.to_string()).into()),
             },
         })
     }
@@ -293,7 +296,7 @@ impl PartialOrd for Tool {
 }
 
 impl FromStr for Tool {
-    type Err = failure::Error;
+    type Err = Error;
 
     fn from_str(s3_key: &str) -> Result<Self, Self::Err> {
         s3_key
@@ -346,7 +349,7 @@ impl ToolsClient {
     }
 
     #[cfg(not(test))]
-    fn fetch_manifest(&self) -> Result<impl Read, failure::Error> {
+    fn fetch_manifest(&self) -> Result<impl Read, Error> {
         Ok(self
             .0
             .get("")
@@ -355,7 +358,7 @@ impl ToolsClient {
     }
 
     #[cfg(test)]
-    fn fetch_manifest(&self) -> Result<impl Read, failure::Error> {
+    fn fetch_manifest(&self) -> Result<impl Read, Error> {
         Ok(std::io::Cursor::new(format!(
             r#"<Test>
             <Key>{0}/cache/oasis-abcdef</Key>
@@ -370,7 +373,7 @@ impl ToolsClient {
         )))
     }
 
-    fn fetch_tool(&self, tool: &Tool, out_dir: &Path) -> Result<(), failure::Error> {
+    fn fetch_tool(&self, tool: &Tool, out_dir: &Path) -> Result<(), Error> {
         let out_path = out_dir.join(&tool.name_ver);
         if out_path.exists() {
             return Ok(());

@@ -1,13 +1,15 @@
 use crate::{
     command::{run_cmd, Verbosity},
     emit,
-    utils::{detect_projects, DevPhase, ProjectKind},
+    workspace::{ProjectKind, Workspace},
 };
 
-pub fn clean() -> Result<(), failure::Error> {
-    for proj in detect_projects(DevPhase::Any)? {
-        match proj.kind {
-            ProjectKind::Rust(_) => {
+pub fn clean(target_strs: &[&str]) -> Result<(), crate::errors::Error> {
+    let workspace = Workspace::populate()?;
+    let targets = workspace.collect_targets(target_strs)?;
+    for proj in workspace.projects_of(&targets) {
+        match &proj.kind {
+            ProjectKind::Rust { .. } => {
                 emit!(cmd.clean, "rust");
                 run_cmd(
                     "cargo",
@@ -19,7 +21,7 @@ pub fn clean() -> Result<(), failure::Error> {
                     Verbosity::Silent,
                 )?;
             }
-            ProjectKind::Javascript(_) => {
+            ProjectKind::JavaScript { .. } => {
                 emit!(cmd.clean, "javascript");
                 run_cmd(
                     "npm",
@@ -32,7 +34,8 @@ pub fn clean() -> Result<(), failure::Error> {
                     Verbosity::Silent,
                 )?;
             }
-        }
+            ProjectKind::Wasm => std::fs::remove_file(&proj.targets[0].name)?,
+        };
     }
     Ok(())
 }

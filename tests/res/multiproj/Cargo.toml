@@ -1,0 +1,23 @@
+[package]
+name = "multiproj"
+version = "0.1.0"
+authors = []
+edition = "2018"
+
+[dependencies]
+oasis-std = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+oasis-test = "0.2"
+
+[package.metadata.oasis.a.dependencies]
+b = { path = "target/service/b.wasm" }
+c = { path = "target/service/c.wasm" }
+
+[package.metadata.oasis.b.dependencies]
+c = { path = "target/service/c.wasm" }
+
+[profile.release]
+opt-level = 0
+panic = "abort"

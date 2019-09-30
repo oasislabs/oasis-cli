@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::Path};
+use std::{collections::BTreeMap, ffi::OsString, path::Path};
 
 use colored::*;
 
@@ -6,8 +6,9 @@ use crate::{
     command::{run_cmd_with_env, Verbosity},
     config::{Config, DEFAULT_GATEWAY_URL},
     emit,
-    error::{ProfileError, ProfileErrorKind},
-    utils::{detect_projects, print_status_in, DevPhase, ProjectKind, Status},
+    errors::{Error, ProfileError, ProfileErrorKind},
+    utils::{print_status_in, Status},
+    workspace::{ProjectKind, Target, Workspace},
 };
 
 macro_rules! print_need_deploy_key_message {
@@ -34,13 +35,14 @@ API token in and hit enter. You're ready to try your deploy again!
 }
 
 pub struct DeployOptions<'a> {
-    profile: &'a str,
-    verbosity: Verbosity,
-    deployer_args: Vec<&'a str>,
+    pub targets: Vec<&'a str>,
+    pub profile: &'a str,
+    pub verbosity: Verbosity,
+    pub deployer_args: Vec<&'a str>,
 }
 
 impl<'a> DeployOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, failure::Error> {
+    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, Error> {
         let profile_name = m.value_of("profile").unwrap();
         match config.profile(profile_name) {
             Ok(_) => (),
@@ -64,6 +66,7 @@ impl<'a> DeployOptions<'a> {
         }
         Ok(Self {
             profile: profile_name,
+            targets: m.values_of("TARGETS").unwrap_or_default().collect(),
             verbosity: Verbosity::from(
                 m.occurrences_of("verbose") as i64 - m.occurrences_of("quiet") as i64,
             ),
@@ -73,44 +76,44 @@ impl<'a> DeployOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for DeployOptions<'a> {
-    fn exec(self) -> Result<(), failure::Error> {
-        deploy(self)
+    fn exec(self) -> Result<(), Error> {
+        let workspace = Workspace::populate()?;
+        let targets = workspace.collect_targets(&self.targets)?;
+        let build_opts = super::BuildOptions {
+            targets: self.targets.clone(),
+            debug: false,
+            verbosity: self.verbosity,
+            stack_size: None,
+            wasi: false,
+            builder_args: Vec::new(),
+        };
+        super::build(&workspace, &targets, build_opts)?;
+        deploy(&targets, self)
     }
 }
 
-pub fn deploy(opts: DeployOptions) -> Result<(), failure::Error> {
-    let mut found_deployable = false;
-    for proj in detect_projects(DevPhase::Deploy)? {
-        match proj.kind {
-            ProjectKind::Rust(_) => (),
-            ProjectKind::Javascript(manifest) => {
-                found_deployable = true;
-                deploy_js(&opts, &proj.manifest_path, manifest)?;
+pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::Error> {
+    for target in targets {
+        let proj = &target.project;
+        match &proj.kind {
+            ProjectKind::JavaScript { deployable, .. } if *deployable => {
+                if opts.verbosity > Verbosity::Quiet {
+                    print_status_in(
+                        Status::Deploying,
+                        &target.name,
+                        proj.manifest_path.parent().unwrap(),
+                    );
+                }
+                deploy_js(&proj.manifest_path, &opts)?
             }
+            _ => (),
         }
-    }
-    if !found_deployable {
-        return Err(failure::format_err!(
-            "could not find any deployment scripts in project"
-        ));
     }
     Ok(())
 }
 
-fn deploy_js(
-    opts: &DeployOptions,
-    manifest_path: &Path,
-    package_json: serde_json::Map<String, serde_json::Value>,
-) -> Result<(), failure::Error> {
+fn deploy_js(manifest_path: &Path, opts: &DeployOptions) -> Result<(), failure::Error> {
     let package_dir = manifest_path.parent().unwrap();
-
-    if opts.verbosity > Verbosity::Quiet {
-        print_status_in(
-            Status::Deploying,
-            package_json["name"].as_str().unwrap(),
-            package_dir,
-        );
-    }
 
     emit!(cmd.deploy.start, {
         "project_type": "js",
@@ -132,7 +135,7 @@ fn deploy_js(
     }
     npm_args.extend(opts.deployer_args.iter());
 
-    let mut npm_envs = std::env::vars_os().collect::<std::collections::HashMap<_, _>>();
+    let mut npm_envs: BTreeMap<_, _> = std::env::vars_os().collect();
     npm_envs.insert(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),

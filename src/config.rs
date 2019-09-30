@@ -10,7 +10,7 @@ use reqwest::Url;
 
 use crate::{
     dialogue, emit,
-    error::{Error, ProfileError, ProfileErrorKind},
+    errors::{CliError, Error, ProfileError, ProfileErrorKind},
 };
 
 pub struct Config {
@@ -75,7 +75,7 @@ impl Config {
         config
     }
 
-    pub fn load() -> Result<Self, failure::Error> {
+    pub fn load() -> Result<Self, Error> {
         let config_path = Self::default_path()?;
         if !config_path.exists() {
             if !Self::skip_generate() {
@@ -89,7 +89,7 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> Result<(), failure::Error> {
+    pub fn save(&self) -> Result<(), Error> {
         if !Self::skip_generate() && !self.dirty {
             self.write_to_file(Self::default_path()?)
         } else {
@@ -130,7 +130,7 @@ impl Config {
         })
     }
 
-    pub fn edit(&mut self, key: &str, value: &str) -> Result<(), failure::Error> {
+    pub fn edit(&mut self, key: &str, value: &str) -> Result<(), Error> {
         emit!(cmd.config.edit, { "key": key });
 
         let mut key_comps = key.split('.');
@@ -262,7 +262,7 @@ impl Config {
 }
 
 impl Config {
-    fn generate(path: &Path) -> Result<Self, failure::Error> {
+    fn generate(path: &Path) -> Result<Self, Error> {
         let mut config = Self::new();
 
         dialogue::introduction();
@@ -281,21 +281,21 @@ impl Config {
         Ok(config)
     }
 
-    fn default_path() -> Result<PathBuf, failure::Error> {
+    fn default_path() -> Result<PathBuf, Error> {
         let mut config_path = crate::oasis_dir!(config)?;
         config_path.push("config.toml");
         Ok(config_path)
     }
 
-    fn read_from_file(path: &Path) -> Result<Self, failure::Error> {
+    fn read_from_file(path: &Path) -> Result<Self, Error> {
         let config_string = fs::read_to_string(path)
-            .map_err(|err| Error::ReadFile(path.display().to_string(), err.to_string()))?;
+            .map_err(|err| CliError::ReadFile(path.display().to_string(), err.to_string()))?;
         let doc = toml_edit::Document::from_str(&config_string)
-            .map_err(|err| Error::ConfigParse(path.display().to_string(), err.to_string()))?;
+            .map_err(|err| CliError::ConfigParse(path.display().to_string(), err.to_string()))?;
         Ok(Self { doc, dirty: false })
     }
 
-    fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), failure::Error> {
+    fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         fs::write(&path, self.doc.to_string_in_original_order())?;
 
         let mut perms = fs::metadata(&path)?.permissions();
@@ -403,7 +403,7 @@ impl fmt::Display for Credential {
 }
 
 impl FromStr for Credential {
-    type Err = failure::Error;
+    type Err = Error;
 
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
         if s.starts_with("0x") {
@@ -471,7 +471,7 @@ impl Profile {
     }
 }
 
-fn parse_gateway_url(url_str: &str) -> Result<Url, failure::Error> {
+fn parse_gateway_url(url_str: &str) -> Result<Url, Error> {
     let url = Url::parse(url_str)?;
     if !url.has_host() {
         return Err(format_err!("URL must specify a domain"));

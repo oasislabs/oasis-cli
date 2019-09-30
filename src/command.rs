@@ -1,6 +1,9 @@
-use std::{collections::HashMap, ffi::OsString, io, path::Path, process::Stdio};
+use std::{collections::BTreeMap, ffi::OsString, io, path::Path, process::Stdio};
 
-use crate::{emit, error::Error};
+use crate::{
+    emit,
+    errors::{CliError, Error},
+};
 
 #[macro_export]
 macro_rules! rust_toolchain {
@@ -38,6 +41,7 @@ impl From<i64> for Verbosity {
 macro_rules! cmd {
     ($prog:expr, $( $arg:expr ),+) => {{
         let mut cmd = std::process::Command::new($prog);
+        cmd.envs(std::env::vars_os());
         $( cmd.arg($arg); )+
         let output = cmd.output()?;
         if !output.status.success() {
@@ -52,26 +56,26 @@ macro_rules! cmd {
     }}
 }
 
-pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<(), failure::Error> {
+pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<(), Error> {
     run_cmd_internal(name, args, None, verbosity, true)
 }
 
 pub fn run_cmd_with_env(
     name: &str,
     args: Vec<&str>,
-    envs: HashMap<OsString, OsString>,
+    envs: BTreeMap<OsString, OsString>,
     verbosity: Verbosity,
-) -> Result<(), failure::Error> {
+) -> Result<(), Error> {
     run_cmd_internal(name, args, Some(envs), verbosity, true)
 }
 
 fn run_cmd_internal(
     name: &str,
     mut args: Vec<&str>,
-    envs: Option<HashMap<OsString, OsString>>,
+    envs: Option<BTreeMap<OsString, OsString>>,
     verbosity: Verbosity,
     allow_hook: bool,
-) -> Result<(), failure::Error> {
+) -> Result<(), Error> {
     let (stdout, stderr) = match verbosity {
         Verbosity::Silent => (Stdio::null(), Stdio::null()),
         _ => (Stdio::inherit(), Stdio::inherit()),
@@ -87,22 +91,18 @@ fn run_cmd_internal(
         cmd.envs(envs);
     }
     let output = cmd.output().map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound => Error::ExecNotFound(name.to_string()).into(),
-        _ => failure::Error::from(e),
+        io::ErrorKind::NotFound => CliError::ExecNotFound(name.to_string()).into(),
+        _ => Error::from(e),
     })?;
 
     if output.status.success() {
         Ok(())
     } else {
-        Err(Error::ProcessExit(name.to_string(), output.status.code().unwrap()).into())
+        Err(CliError::ProcessExit(name.to_string(), output.status.code().unwrap()).into())
     }
 }
 
-fn hook_cmd(
-    name: &str,
-    args: &mut Vec<&str>,
-    verbosity: Verbosity,
-) -> Result<String, failure::Error> {
+fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String, Error> {
     Ok(match name {
         "npm" => {
             let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
@@ -129,7 +129,7 @@ fn npm_install_if_needed<'a>(
     npm_command: &'a str,
     package_dir: &'a Path,
     verbosity: Verbosity,
-) -> Result<(), failure::Error> {
+) -> Result<(), Error> {
     if !package_dir.join("node_modules").is_dir() {
         let npm_args = vec![
             "install",

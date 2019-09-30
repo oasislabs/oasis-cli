@@ -1,4 +1,4 @@
-#![feature(box_syntax, concat_idents)]
+#![feature(bind_by_move_pattern_guards, concat_idents)]
 
 #[macro_use]
 extern crate clap;
@@ -12,17 +12,19 @@ mod command;
 mod config;
 mod dialogue;
 mod dirs;
-mod error;
+mod errors;
 mod help;
 mod subcommands;
 mod telemetry;
 mod utils;
+mod workspace;
 
 use subcommands::*;
 
 fn main() {
     env_logger::Builder::from_default_env()
         .format(log_format)
+        .filter_level(log::LevelFilter::Info)
         .init();
 
     if !dirs::has_home_dir() {
@@ -53,9 +55,13 @@ fn main() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
         ("test", Some(m)) => TestOptions::new(&m, &config).exec(),
-        ("clean", Some(_)) => clean(),
+        ("clean", Some(m)) => clean(
+            &m.values_of("TARGETS")
+                .unwrap_or_default()
+                .collect::<Vec<_>>(),
+        ),
         ("ifextract", Some(m)) => ifextract(
-            m.value_of("SERVICE_PATH").unwrap(),
+            m.value_of("IMPORT_LOC").unwrap(),
             std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
         ),
         ("deploy", Some(m)) => DeployOptions::new(&m, &config).exec(),

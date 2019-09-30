@@ -50,3 +50,32 @@ pub fn bin_dir() -> PathBuf {
             d
         })
 }
+
+#[macro_export]
+macro_rules! ensure_dir {
+    ($dir:ident$( .push($subdir:expr) )? ) => {{
+        use crate::dirs::*;
+        #[allow(unused_mut)]
+        let mut dir = concat_idents!($dir, _dir)();
+        $( dir.push($subdir); )?
+        if dir.is_file() {
+            Err(failure::format_err!(
+                "{} dir `{}` is a file",
+                stringify!($dir),
+                dir.display()
+            ))
+        } else {
+            if !dir.is_dir() {
+                std::fs::create_dir_all(&dir)?
+            }
+            Ok(dir)
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! oasis_dir {
+    ($dir:ident) => {
+        $crate::ensure_dir!($dir.push("oasis"));
+    };
+}
