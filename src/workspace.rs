@@ -27,7 +27,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn populate() -> Result<Self, Error> {
-        let cwd = std::env::current_dir()?;
+        let cwd = std::env::current_dir().unwrap(); // Checked during initialization.
         let repo_root = cwd
             .ancestors()
             .find(|a| a.join(".git").is_dir())
@@ -74,113 +74,17 @@ impl Workspace {
     /// Collects the set of top-level dependencies that are matched by the input `target_strs`.
     /// A valid target str is either the name of a service or a path in the workspace that
     /// points to a directory that contains services. Like git, `:/` refers to the workspace root.
-    pub fn collect_targets(&self, target_strs: &[&str]) -> Result<Vec<&Target>, Error> {
+    pub fn collect_targets<'a, 't>(
+        &'a self,
+        target_strs: &'t [&'t str],
+    ) -> Result<Vec<&'a Target>, Error> {
         let cwd = std::env::current_dir()?;
         let target_strs = if target_strs.is_empty() {
             Cow::Owned(vec![cwd.to_str().unwrap()])
         } else {
             Cow::Borrowed(target_strs)
         };
-
-        let mut service_names = BTreeSet::new();
-        let mut search_paths = BTreeMap::new();
-        let mut wasm_paths = BTreeSet::new();
-
-        for target_str in target_strs.iter() {
-            let target_path = Path::new(target_str);
-            if target_str.ends_with(".wasm") || *target_str == "a.out" {
-                wasm_paths.insert(target_path);
-                continue;
-            }
-            if target_str.starts_with(":/") {
-                search_paths.insert(Cow::Owned(self.root.join(&target_str[2..])), target_str);
-            } else if target_str.contains('/') || target_path.exists() {
-                search_paths.insert(
-                    if target_path.is_absolute() {
-                        Cow::Borrowed(target_path)
-                    } else {
-                        Cow::Owned(cwd.join(target_str))
-                    },
-                    target_str,
-                );
-            } else if target_str
-                .chars()
-                .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_')
-            {
-                service_names.insert(*target_str);
-            } else {
-                warn!(
-                    "`{}` does not refer to a service nor a directory containing services",
-                    target_str
-                );
-            }
-        }
-
-        let mut targets = Vec::new();
-
-        for path in wasm_paths.iter() {
-            if !path.is_file() {
-                warn!("`{}` does not exist", path.display());
-                continue;
-            }
-            let mut proj = Box::pin(Project {
-                manifest_path: path.to_path_buf(),
-                kind: ProjectKind::Wasm,
-                targets: Vec::with_capacity(1),
-            });
-            let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-            proj.targets.push(Target {
-                name: path.to_str().unwrap().to_string(),
-                path: path.to_path_buf(),
-                dependencies: BTreeMap::new(),
-                status: Cell::new(DependencyStatus::Resolved),
-                project: proj_ref,
-            });
-            unsafe { &mut *self.projects.get() }.push(proj); // @see `struct Workspace`
-        }
-
-        for (path, target_str) in search_paths.iter() {
-            if !path.exists() {
-                warn!("the path `{}` does not exist", target_str);
-                continue;
-            }
-            if !path.starts_with(&self.root) {
-                warn!("the path `{}` exists outside of this workspace", target_str);
-                continue;
-            }
-            let mut found_proj = false;
-            for proj in self.projects().iter() {
-                if proj.manifest_path.starts_with(path) {
-                    found_proj = true;
-                    targets.extend(proj.targets.iter());
-                } else if path.starts_with(proj.manifest_path.parent().unwrap()) {
-                    found_proj = true;
-                    targets.extend(proj.targets.iter().filter(|t| t.path.starts_with(path)));
-                }
-            }
-            if !found_proj {
-                warn!("no services found in `{}`", target_str);
-            }
-        }
-
-        for service_name in service_names {
-            let mut found_services = Vec::new();
-            for p in self.projects().iter() {
-                for target in p.targets.iter() {
-                    if target.name == service_name {
-                        found_services.push(target);
-                    }
-                }
-            }
-            if found_services.is_empty() {
-                warn!("no service named `{}` found in the workspace", service_name);
-            } else if found_services.len() > 1 {
-                return Err(WorkspaceError::DuplicateService(service_name.to_string()).into());
-            }
-            targets.append(&mut found_services);
-        }
-
-        Ok(targets)
+        Targets::new(self, &target_strs).collect()
     }
 
     /// Returns the input targets in topologically sorted order.
@@ -399,11 +303,147 @@ impl Workspace {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum DependencyStatus {
-    Unresolved,
-    Visited,
-    Resolved,
+struct Targets<'a, 't> {
+    workspace: &'a Workspace,
+    service_names: BTreeSet<&'t str>,
+    search_paths: BTreeMap<Cow<'t, Path>, &'t str>, // abs path -> user path
+    wasm_paths: BTreeSet<&'t Path>,
+}
+
+impl<'a, 't> Targets<'a, 't> {
+    fn new(workspace: &'a Workspace, target_strs: &'t [&'t str]) -> Self {
+        let cwd = std::env::current_dir().unwrap(); // Checked during initialization.
+
+        let mut service_names = BTreeSet::new();
+        let mut search_paths = BTreeMap::new();
+        let mut wasm_paths = BTreeSet::new();
+
+        for target_str in target_strs {
+            let target_path = Path::new(target_str);
+            if target_str.ends_with(".wasm") || *target_str == "a.out" {
+                wasm_paths.insert(target_path);
+                continue;
+            }
+            if target_str.starts_with(":/") {
+                search_paths.insert(
+                    Cow::Owned(workspace.root.join(&target_str[2..])),
+                    *target_str,
+                );
+            } else if target_str.contains('/') || target_path.exists() {
+                search_paths.insert(
+                    if target_path.is_absolute() {
+                        Cow::Borrowed(target_path)
+                    } else {
+                        Cow::Owned(cwd.join(target_str))
+                    },
+                    *target_str,
+                );
+            } else if target_str
+                .chars()
+                .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_')
+            {
+                service_names.insert(*target_str);
+            } else {
+                warn!(
+                    "`{}` does not refer to a service nor a directory containing services",
+                    target_str
+                );
+            }
+        }
+
+        Self {
+            workspace,
+            service_names,
+            search_paths,
+            wasm_paths,
+        }
+    }
+
+    fn collect(self) -> Result<Vec<&'a Target>, Error> {
+        let mut targets = Vec::new();
+        self.collect_wasm_targets(&mut targets);
+        self.collect_path_targets(&mut targets);
+        self.collect_service_targets(&mut targets)?;
+        Ok(targets)
+    }
+
+    fn collect_wasm_targets(&self, targets: &mut Vec<&'a Target>) {
+        for path in self.wasm_paths.iter() {
+            if !path.is_file() {
+                warn!("`{}` does not exist", path.display());
+                continue;
+            }
+            let mut proj = Box::pin(Project {
+                manifest_path: path.to_path_buf(),
+                kind: ProjectKind::Wasm,
+                targets: Vec::with_capacity(1),
+            });
+            let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+            proj.targets.push(Target {
+                name: path.to_str().unwrap().to_string(),
+                path: path.to_path_buf(),
+                dependencies: BTreeMap::new(),
+                status: Cell::new(DependencyStatus::Resolved),
+                project: proj_ref,
+            });
+            unsafe { &mut *self.workspace.projects.get() }.push(proj); // @see `struct Workspace`
+            targets.push(
+                self.workspace
+                    .projects()
+                    .last()
+                    .unwrap()
+                    .targets
+                    .first()
+                    .unwrap(),
+            );
+        }
+    }
+
+    fn collect_path_targets(&self, targets: &mut Vec<&'a Target>) {
+        for (path, target_str) in self.search_paths.iter() {
+            if !path.exists() {
+                warn!("the path `{}` does not exist", target_str);
+                continue;
+            }
+            if !path.starts_with(&self.workspace.root) {
+                warn!("the path `{}` exists outside of this workspace", target_str);
+                continue;
+            }
+            let mut found_proj = false;
+            for proj in self.workspace.projects().iter() {
+                if proj.manifest_path.starts_with(path) {
+                    found_proj = true;
+                    targets.extend(proj.targets.iter());
+                } else if path.starts_with(proj.manifest_path.parent().unwrap()) {
+                    found_proj = true;
+                    targets.extend(proj.targets.iter().filter(|t| t.path.starts_with(path)));
+                }
+            }
+            if !found_proj {
+                warn!("no services found in `{}`", target_str);
+            }
+        }
+    }
+
+    fn collect_service_targets(&self, targets: &mut Vec<&'a Target>) -> Result<(), Error> {
+        for service_name in self.service_names.iter() {
+            let mut found_services = Vec::new();
+            for p in self.workspace.projects().iter() {
+                for target in p.targets.iter() {
+                    if target.name == *service_name {
+                        found_services.push(target);
+                    }
+                }
+            }
+            if found_services.is_empty() {
+                warn!("no service named `{}` found in the workspace", service_name);
+            } else if found_services.len() > 1 {
+                return Err(WorkspaceError::DuplicateService(service_name.to_string()).into());
+            }
+            targets.append(&mut found_services);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -445,6 +485,13 @@ enum Dependency {
 
     // The `'static` is with respect to the `Target` that will forever own this `Dependency`
     Resolved(&'static Target),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DependencyStatus {
+    Unresolved,
+    Visited,
+    Resolved,
 }
 
 #[derive(Debug, Deserialize)]
