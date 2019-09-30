@@ -3,7 +3,7 @@ use std::{
     cell::{Cell, RefCell, UnsafeCell},
     collections::{BTreeMap, BTreeSet},
     fmt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     pin::Pin,
 };
 
@@ -120,11 +120,7 @@ impl Workspace {
             let mut dep = dep.borrow_mut();
             let dep_path = match &*dep {
                 Dependency::Unresolved(ImportLocation::Path(path)) => {
-                    if path.is_absolute() {
-                        Cow::Borrowed(path)
-                    } else {
-                        Cow::Owned(target.project.manifest_path.parent().unwrap().join(path))
-                    }
+                    canonicalize_path(target.project.manifest_path.parent().unwrap(), path)
                 }
                 _ => continue,
             };
@@ -148,7 +144,9 @@ impl Workspace {
 
     fn lookup_target(&self, name: &str, path: &Path) -> Result<&Target, Error> {
         for proj in self.projects().iter() {
-            if !path.starts_with(proj.manifest_path.parent().unwrap()) {
+            if !path.starts_with(proj.manifest_path.parent().unwrap())
+                && !path.starts_with(&proj.target_dir)
+            {
                 continue;
             }
             for target in proj.targets.iter() {
@@ -196,10 +194,9 @@ impl Workspace {
             let mut projects = Vec::new();
             for pkg in metadata.packages {
                 let mut proj = Box::pin(Project {
-                    manifest_path: manifest_path.to_path_buf(),
-                    kind: ProjectKind::Rust {
-                        target_dir: metadata.target_directory.to_path_buf(),
-                    },
+                    target_dir: metadata.target_directory.to_path_buf(),
+                    manifest_path: PathBuf::from(pkg.manifest_path),
+                    kind: ProjectKind::Rust,
                     targets: Vec::new(),
                 });
                 let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
@@ -243,6 +240,7 @@ impl Workspace {
 
             let npm_scripts = manifest.get("scripts").and_then(|s| s.as_object());
             let mut proj = Box::pin(Project {
+                target_dir: manifest_path.parent().unwrap().to_path_buf(),
                 manifest_path: manifest_path.to_path_buf(),
                 kind: ProjectKind::JavaScript {
                     testable: npm_scripts
@@ -330,14 +328,7 @@ impl<'a, 't> Targets<'a, 't> {
                     *target_str,
                 );
             } else if target_str.contains('/') || target_path.exists() {
-                search_paths.insert(
-                    if target_path.is_absolute() {
-                        Cow::Borrowed(target_path)
-                    } else {
-                        Cow::Owned(cwd.join(target_str))
-                    },
-                    *target_str,
-                );
+                search_paths.insert(canonicalize_path(&cwd, target_path), *target_str);
             } else if target_str
                 .chars()
                 .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_')
@@ -374,6 +365,7 @@ impl<'a, 't> Targets<'a, 't> {
                 continue;
             }
             let mut proj = Box::pin(Project {
+                target_dir: path.parent().unwrap().to_path_buf(),
                 manifest_path: path.to_path_buf(),
                 kind: ProjectKind::Wasm,
                 targets: Vec::with_capacity(1),
@@ -452,6 +444,7 @@ impl<'a, 't> Targets<'a, 't> {
 
 #[derive(Debug)]
 pub struct Project {
+    pub target_dir: PathBuf,
     pub manifest_path: PathBuf,
     pub kind: ProjectKind,
     pub targets: Vec<Target>,
@@ -459,7 +452,7 @@ pub struct Project {
 
 #[derive(Debug)]
 pub enum ProjectKind {
-    Rust { target_dir: PathBuf },
+    Rust,
     JavaScript { deployable: bool, testable: bool },
     Wasm,
 }
@@ -532,4 +525,53 @@ struct OasisMetadata {
 struct OasisDeps {
     #[serde(default)]
     dependencies: BTreeMap<String, ImportLocation>,
+}
+
+/// Removes `.` and `..` from `path` given an already-dedotted `base` path.
+fn canonicalize_path<'a>(base: &Path, path: &'a Path) -> Cow<'a, Path> {
+    if path.is_absolute() {
+        Cow::Borrowed(path)
+    } else {
+        let mut canon_path = base.to_path_buf();
+        for comp in path.components() {
+            match comp {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    canon_path.pop();
+                }
+                Component::Normal(c) => {
+                    canon_path.push(c);
+                }
+                Component::RootDir => unreachable!("path is not absolute"),
+                Component::Prefix(_) => unreachable!("Windows is not a supported OS"),
+            }
+        }
+        Cow::Owned(canon_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_canonlicalize_abspath() {
+        let base = Path::new("/");
+        let abspath = Path::new("/lol/wtf/bbq");
+        assert_eq!(canonicalize_path(&base, &abspath), abspath);
+    }
+
+    #[test]
+    fn test_canonlicalize_relpath_below_base() {
+        let base = Path::new("/a/path/somewhere");
+        let abspath = Path::new(".././../test/.");
+        assert_eq!(canonicalize_path(&base, &abspath), Path::new("/a/test"));
+    }
+
+    #[test]
+    fn test_canonlicalize_relpath_above_base() {
+        let base = Path::new("/a/path/");
+        let abspath = Path::new("../../../../test");
+        assert_eq!(canonicalize_path(&base, &abspath), Path::new("/test"));
+    }
 }

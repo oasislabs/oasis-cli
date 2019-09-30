@@ -67,9 +67,7 @@ pub fn build(
         }
 
         match &proj.kind {
-            ProjectKind::Rust { target_dir } => {
-                build_rust(target, &proj.manifest_path, &target_dir, &opts)?
-            }
+            ProjectKind::Rust => build_rust(target, &proj.manifest_path, &proj.target_dir, &opts)?,
             ProjectKind::JavaScript { .. } => build_js(&proj.manifest_path, &opts)?,
             ProjectKind::Wasm => {
                 let out_file = Path::new(&target.name).with_extension("wasm");
