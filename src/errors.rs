@@ -33,7 +33,13 @@ pub enum WorkspaceError {
         display = "could not find workspace in `{}` or any parent directory",
         _0
     )]
-    NotFound(String),
+    NoWorkspace(String),
+
+    #[fail(
+        display = "could not find dependency `{}` in the current workspace",
+        _0
+    )]
+    MissingDependency(String),
 
     #[fail(display = "multiple services named `{}` found in workspace", _0)]
     DuplicateService(String),

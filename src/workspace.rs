@@ -1,6 +1,8 @@
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell, UnsafeCell},
     collections::{BTreeMap, BTreeSet},
+    fmt,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -31,7 +33,13 @@ impl Workspace {
             .find(|a| a.join(".git").is_dir())
             .ok_or_else(|| WorkspaceError::NoWorkspace(cwd.display().to_string()))?;
 
-        let walk_builder = ignore::WalkBuilder::new(repo_root);
+        let mut walk_builder = ignore::WalkBuilder::new(repo_root);
+        walk_builder.sort_by_file_path(|a, b| {
+            match a.components().count().cmp(&b.components().count()) {
+                std::cmp::Ordering::Equal => a.cmp(b),
+                ord => ord,
+            }
+        });
         let manifest_walker = walk_builder.build().filter_map(|de| match de {
             Ok(de)
                 if de.file_type().map(|ft| ft.is_file()).unwrap_or_default()
@@ -53,9 +61,8 @@ impl Workspace {
             {
                 continue;
             }
-            let proj = Project::from_manifest(manifest_path)?;
-            project_dirs.push((mf_ty, proj.manifest_path.parent().unwrap().to_path_buf()));
-            projects.push(proj);
+            project_dirs.push((mf_ty, manifest_path.parent().unwrap().to_path_buf()));
+            projects.extend(Self::load_projects_from_manifest(manifest_path)?);
         }
 
         Ok(Self {
@@ -70,9 +77,9 @@ impl Workspace {
     pub fn collect_targets(&self, target_strs: &[&str]) -> Result<Vec<&Target>, Error> {
         let cwd = std::env::current_dir()?;
         let target_strs = if target_strs.is_empty() {
-            &["."]
+            Cow::Owned(vec![cwd.to_str().unwrap()])
         } else {
-            target_strs
+            Cow::Borrowed(target_strs)
         };
 
         let mut service_names = BTreeSet::new();
@@ -86,13 +93,13 @@ impl Workspace {
                 continue;
             }
             if target_str.starts_with(":/") {
-                search_paths.insert(self.root.join(&target_str[2..]), target_str);
+                search_paths.insert(Cow::Owned(self.root.join(&target_str[2..])), target_str);
             } else if target_str.contains('/') || target_path.exists() {
                 search_paths.insert(
                     if target_path.is_absolute() {
-                        target_path.to_path_buf()
+                        Cow::Borrowed(target_path)
                     } else {
-                        cwd.join(target_str)
+                        Cow::Owned(cwd.join(target_str))
                     },
                     target_str,
                 );
@@ -124,6 +131,7 @@ impl Workspace {
             let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
             proj.targets.push(Target {
                 name: path.to_str().unwrap().to_string(),
+                path: path.to_path_buf(),
                 dependencies: BTreeMap::new(),
                 status: Cell::new(DependencyStatus::Resolved),
                 project: proj_ref,
@@ -137,6 +145,9 @@ impl Workspace {
                 if proj.manifest_path.starts_with(path) {
                     found_proj = true;
                     targets.extend(proj.targets.iter());
+                } else if path.starts_with(proj.manifest_path.parent().unwrap()) {
+                    found_proj = true;
+                    targets.extend(proj.targets.iter().filter(|t| t.path.starts_with(path)));
                 }
             }
             if !found_proj {
@@ -198,9 +209,9 @@ impl Workspace {
             let dep_path = match &*dep {
                 Dependency::Unresolved(ImportLocation::Path(path)) => {
                     if path.is_absolute() {
-                        path.to_path_buf()
+                        Cow::Borrowed(path)
                     } else {
-                        target.project.manifest_path.parent().unwrap().join(path)
+                        Cow::Owned(target.project.manifest_path.parent().unwrap().join(path))
                     }
                 }
                 _ => continue,
@@ -240,6 +251,144 @@ impl Workspace {
     fn projects(&self) -> &[Pin<Box<Project>>] {
         unsafe { (&*self.projects.get()).as_slice() } // @see `struct Workspace`
     }
+
+    fn load_projects_from_manifest(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>, Error> {
+        let manifest_type = manifest_path
+            .file_name()
+            .and_then(|p| p.to_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected path to a Cargo.toml or package.json, but got {}",
+                    manifest_path.display()
+                )
+            });
+        if manifest_type == "Cargo.toml" {
+            let metadata: CargoMetadata = serde_json::from_slice(
+                &cmd!(
+                    "cargo",
+                    "metadata",
+                    "--manifest-path",
+                    manifest_path,
+                    "--no-deps",
+                    "--format-version=1"
+                )?
+                .stdout,
+            )
+            .map_err(|_| {
+                failure::format_err!(
+                    "unable to parse `{}`. Are your Oasis dependencies properly specified?",
+                    manifest_path.display()
+                )
+            })?;
+
+            let mut projects = Vec::new();
+            for pkg in metadata.packages {
+                let mut proj = Box::pin(Project {
+                    manifest_path: manifest_path.to_path_buf(),
+                    kind: ProjectKind::Rust {
+                        target_dir: metadata.target_directory.to_path_buf(),
+                    },
+                    targets: Vec::new(),
+                });
+                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+                for target in pkg.targets {
+                    if !target.kind.iter().any(|tk| tk == "bin") {
+                        continue;
+                    }
+                    let deps = match &pkg.metadata {
+                        Some(metadata) => metadata
+                            .oasis
+                            .get(&target.name)
+                            .map(|target_meta| {
+                                target_meta
+                                    .dependencies
+                                    .iter()
+                                    .map(|(name, loc)| {
+                                        (
+                                            name.to_string(),
+                                            RefCell::new(Dependency::Unresolved(loc.clone())),
+                                        )
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        None => BTreeMap::default(),
+                    };
+                    proj.targets.push(Target {
+                        project: proj_ref,
+                        name: target.name.to_string(),
+                        path: target.src_path,
+                        dependencies: deps,
+                        status: Cell::new(DependencyStatus::Unresolved),
+                    });
+                }
+                projects.push(proj);
+            }
+            Ok(projects)
+        } else if manifest_type == "package.json" {
+            let manifest: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
+
+            let npm_scripts = manifest.get("scripts").and_then(|s| s.as_object());
+            let mut proj = Box::pin(Project {
+                manifest_path: manifest_path.to_path_buf(),
+                kind: ProjectKind::JavaScript {
+                    testable: npm_scripts
+                        .map(|s| s.contains_key("test"))
+                        .unwrap_or_default(),
+                    deployable: npm_scripts
+                        .map(|s| s.contains_key("deploy"))
+                        .unwrap_or_default(),
+                },
+                targets: Vec::new(),
+            });
+            let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+
+            proj.targets = if manifest
+                .get("devDependencies")
+                .and_then(|deps| deps.get("lerna"))
+                .map(|lerna| !lerna.is_null())
+                .unwrap_or_default()
+            {
+                manifest_path
+                    .parent()
+                    .unwrap()
+                    .join("packages")
+                    .read_dir()
+                    .map(|dir_ents| {
+                        dir_ents
+                            .filter_map(|de| match de {
+                                Ok(de) if de.file_type().ok()?.is_dir() => Some(Target {
+                                    name: de.file_name().to_str().unwrap().to_string(),
+                                    project: proj_ref,
+                                    path: de.path().to_path_buf(),
+                                    dependencies: Default::default(),
+                                    status: Cell::new(DependencyStatus::Resolved),
+                                }),
+                                _ => None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec![Target {
+                    name: manifest
+                        .get("name")
+                        .and_then(|name| name.as_str())
+                        .map(|name| name.to_string())
+                        .unwrap_or_default(),
+                    path: proj_ref.manifest_path.parent().unwrap().to_path_buf(),
+                    project: proj_ref,
+                    dependencies: Default::default(),
+                    status: Cell::new(DependencyStatus::Resolved),
+                }]
+            };
+
+            Ok(vec![proj])
+        } else {
+            Ok(Vec::new())
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -263,138 +412,23 @@ pub enum ProjectKind {
     Wasm,
 }
 
-impl Project {
-    fn from_manifest(manifest_path: &Path) -> Result<Pin<Box<Self>>, Error> {
-        match manifest_path.file_name().and_then(|p| p.to_str()) {
-            Some("Cargo.toml") => {
-                let metadata: CargoMetadata = serde_json::from_slice(
-                    &cmd!(
-                        "cargo",
-                        "metadata",
-                        "--manifest-path",
-                        manifest_path,
-                        "--no-deps",
-                        "--format-version=1"
-                    )?
-                    .stdout,
-                )?;
-
-                let mut proj = Box::pin(Self {
-                    manifest_path: manifest_path.to_path_buf(),
-                    kind: ProjectKind::Rust {
-                        target_dir: metadata.target_directory,
-                    },
-                    targets: Vec::new(),
-                });
-                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-
-                for pkg in metadata.packages {
-                    for target in pkg.targets {
-                        if !target.kind.iter().any(|tk| tk == "bin") {
-                            continue;
-                        }
-                        let deps = match &pkg.metadata {
-                            Some(metadata) => metadata
-                                .oasis
-                                .get(&target.name)
-                                .map(|target_meta| {
-                                    target_meta
-                                        .dependencies
-                                        .iter()
-                                        .map(|(name, loc)| {
-                                            (
-                                                name.to_string(),
-                                                RefCell::new(Dependency::Unresolved(loc.clone())),
-                                            )
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default(),
-                            None => BTreeMap::default(),
-                        };
-                        proj.targets.push(Target {
-                            project: proj_ref,
-                            name: target.name.to_string(),
-                            dependencies: deps,
-                            status: Cell::new(DependencyStatus::Unresolved),
-                        });
-                    }
-                }
-                Ok(proj)
-            }
-            Some("package.json") => {
-                let manifest: serde_json::Map<String, serde_json::Value> =
-                    serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
-
-                let npm_scripts = manifest.get("scripts").and_then(|s| s.as_object());
-                let mut proj = Box::pin(Self {
-                    manifest_path: manifest_path.to_path_buf(),
-                    kind: ProjectKind::JavaScript {
-                        testable: npm_scripts
-                            .map(|s| s.contains_key("test"))
-                            .unwrap_or_default(),
-                        deployable: npm_scripts
-                            .map(|s| s.contains_key("deploy"))
-                            .unwrap_or_default(),
-                    },
-                    targets: Vec::new(),
-                });
-                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-
-                proj.targets = if manifest
-                    .get("devDependencies")
-                    .and_then(|deps| deps.get("lerna"))
-                    .map(|lerna| !lerna.is_null())
-                    .unwrap_or_default()
-                {
-                    manifest_path
-                        .parent()
-                        .unwrap()
-                        .join("packages")
-                        .read_dir()
-                        .map(|dir_ents| {
-                            dir_ents
-                                .filter_map(|de| match de {
-                                    Ok(de) if de.file_type().ok()?.is_dir() => Some(Target {
-                                        name: de.file_name().to_str().unwrap().to_string(),
-                                        project: proj_ref,
-                                        dependencies: Default::default(),
-                                        status: Cell::new(DependencyStatus::Resolved),
-                                    }),
-                                    _ => None,
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    vec![Target {
-                        name: manifest
-                            .get("name")
-                            .and_then(|name| name.as_str())
-                            .map(|name| name.to_string())
-                            .unwrap_or_default(),
-                        project: proj_ref,
-                        dependencies: Default::default(),
-                        status: Cell::new(DependencyStatus::Resolved),
-                    }]
-                };
-
-                Ok(proj)
-            }
-            _ => unreachable!(
-                "`Project::from_manifest` requires a Cargo.toml or package.json, but received {}",
-                manifest_path.display()
-            ),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct Target {
     pub name: String,
     pub project: &'static Project,
+    pub path: PathBuf,
     dependencies: BTreeMap<String, RefCell<Dependency>>,
     status: Cell<DependencyStatus>,
+}
+
+impl fmt::Debug for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Target")
+            .field("name", &self.name)
+            .field("project", &self.project.manifest_path)
+            .field("dependencies", &self.dependencies)
+            .field("status", &self.status)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -426,6 +460,7 @@ struct CargoPackage {
 struct CargoTarget {
     name: String,
     kind: Vec<String>,
+    src_path: PathBuf,
 }
 
 #[derive(Default, Debug, Deserialize)]
