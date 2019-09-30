@@ -55,7 +55,7 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         )
         (@subcommand clean =>
             (about: "Remove build products")
-            (@arg TARGETS: +multiple "Specify names or paths of services and apps to build")
+            (@arg TARGETS: +multiple "Specify names or paths of services and apps to clean")
         )
         (@subcommand chain =>
             (about: "Run a local Oasis blockchain")
