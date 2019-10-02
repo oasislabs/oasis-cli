@@ -93,6 +93,7 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
 }
 
 pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::Error> {
+    let mut found_deployable = false;
     for target in targets {
         let proj = &target.project;
         match &proj.kind {
@@ -104,10 +105,14 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::E
                         proj.manifest_path.parent().unwrap(),
                     );
                 }
+                found_deployable = true;
                 deploy_js(&proj.manifest_path, &opts)?
             }
-            _ => (),
+            _ => {}
         }
+    }
+    if !found_deployable {
+        warn!("no deployable services found. Does your `package.json` contain a `deploy` script?");
     }
     Ok(())
 }
