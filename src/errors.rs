@@ -41,9 +41,6 @@ pub enum WorkspaceError {
     )]
     MissingDependency(String),
 
-    #[fail(display = "multiple services named `{}` found in workspace", _0)]
-    DuplicateService(String),
-
     #[fail(display = "`{}` has a circular dependency on `{}`", _0, _1)]
     CircularDependency(String, String),
 }

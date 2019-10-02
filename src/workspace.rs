@@ -423,20 +423,18 @@ impl<'a, 't> Targets<'a, 't> {
 
     fn collect_service_targets(&self, targets: &mut Vec<&'a Target>) -> Result<(), Error> {
         for service_name in self.service_names.iter() {
-            let mut found_services = Vec::new();
+            let mut found_service = false;
             for p in self.workspace.projects().iter() {
                 for target in p.targets.iter() {
                     if target.name == *service_name {
-                        found_services.push(target);
+                        found_service = true;
+                        targets.push(target);
                     }
                 }
             }
-            if found_services.is_empty() {
+            if !found_service {
                 warn!("no service named `{}` found in the workspace", service_name);
-            } else if found_services.len() > 1 {
-                return Err(WorkspaceError::DuplicateService(service_name.to_string()).into());
             }
-            targets.append(&mut found_services);
         }
         Ok(())
     }
