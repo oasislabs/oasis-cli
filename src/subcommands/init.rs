@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use heck::{CamelCase, SnakeCase};
 
@@ -61,7 +64,7 @@ fn init_rust(opts: &InitOptions) -> Result<(), Error> {
     if dest.exists() {
         return Err(CliError::FileAlreadyExists(dest.display().to_string()).into());
     }
-    std::fs::create_dir_all(dest)?;
+    fs::create_dir_all(dest)?;
 
     match clone_template_repo(dest) {
         Ok(_) => {
@@ -75,7 +78,14 @@ fn init_rust(opts: &InitOptions) -> Result<(), Error> {
             })?;
         }
     }
-    cmd!("git", "init", dest)?;
+    match cmd!("git", "rev-parse", "--git-dir") {
+        Ok(_) => {
+            fs::remove_dir_all(dest.join(".github")).ok();
+        }
+        Err(_) => {
+            cmd!("git", "init", dest)?;
+        }
+    }
 
     let project_name = dest
         .file_name()
