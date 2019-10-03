@@ -51,18 +51,14 @@ impl Workspace {
         });
 
         let mut projects = Vec::new();
-        let mut project_dirs = Vec::new();
+        let mut proj_manifest_paths = BTreeSet::new();
         for manifest_de in manifest_walker {
-            let manifest_path = manifest_de.path();
-            let mf_ty = manifest_de.file_name().to_owned();
-            if project_dirs
-                .iter()
-                .any(|(m, p)| *m == mf_ty && manifest_path.starts_with(p))
-            {
-                continue;
+            for proj in Self::load_projects_from_manifest(manifest_de.path())? {
+                if !proj_manifest_paths.contains(&proj.manifest_path) {
+                    proj_manifest_paths.insert(proj.manifest_path.to_path_buf());
+                    projects.push(proj);
+                }
             }
-            project_dirs.push((mf_ty, manifest_path.parent().unwrap().to_path_buf()));
-            projects.extend(Self::load_projects_from_manifest(manifest_path)?);
         }
 
         Ok(Self {
