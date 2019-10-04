@@ -371,7 +371,7 @@ impl<'a, 't> Targets<'a, 't> {
                 name: path.to_str().unwrap().to_string(),
                 path: path.to_path_buf(),
                 dependencies: BTreeMap::new(),
-                status: Cell::new(DependencyStatus::Resolved),
+                status: Cell::new(DependencyStatus::Unresolved),
                 project: proj_ref,
             });
             unsafe { &mut *self.workspace.projects.get() }.push(proj); // @see `struct Workspace`
