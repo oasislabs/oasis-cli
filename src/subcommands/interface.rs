@@ -32,12 +32,11 @@ pub fn ifextract(import_location: &str, out_dir: &Path) -> failure::Fallible<()>
 
 pub fn ifattach(service_wasm: &Path, iface_json: &Path) -> failure::Fallible<()> {
     crate::emit!(cmd.ifattach);
-    let iface = std::fs::read(iface_json)?;
-    oasis_rpc::Interface::from_slice(&iface)?;
+    let iface: oasis_rpc::Interface = serde_json::from_slice(&std::fs::read(iface_json)?)?;
     let mut module = walrus::Module::from_file(&service_wasm)?;
     module.customs.add(walrus::RawCustomSection {
         name: "oasis-interface".to_string(),
-        data: iface,
+        data: iface.to_vec()?,
     });
     module.emit_wasm_file(service_wasm)?;
     Ok(())
