@@ -19,6 +19,8 @@ mod telemetry;
 mod utils;
 mod workspace;
 
+use std::path::Path;
+
 use subcommands::*;
 
 fn main() {
@@ -55,16 +57,12 @@ fn main() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
         ("test", Some(m)) => TestOptions::new(&m, &config).exec(),
+        ("deploy", Some(m)) => DeployOptions::new(&m, &config).exec(),
         ("clean", Some(m)) => clean(
             &m.values_of("TARGETS")
                 .unwrap_or_default()
                 .collect::<Vec<_>>(),
         ),
-        ("ifextract", Some(m)) => ifextract(
-            m.value_of("IMPORT_LOC").unwrap(),
-            std::path::Path::new(m.value_of("out_dir").unwrap_or(".")),
-        ),
-        ("deploy", Some(m)) => DeployOptions::new(&m, &config).exec(),
         ("config", Some(m)) => {
             let key = m.value_of("KEY").unwrap();
             match m.value_of("VALUE") {
@@ -78,6 +76,14 @@ fn main() {
             }
         }
         ("set-toolchain", Some(m)) => toolchain::set(m.value_of("VERSION").unwrap()),
+        ("ifattach", Some(m)) => ifattach(
+            Path::new(m.value_of("SERVICE_WASM").unwrap()),
+            Path::new(m.value_of("IFACE_JSON").unwrap()),
+        ),
+        ("ifextract", Some(m)) => ifextract(
+            m.value_of("IMPORT_LOC").unwrap(),
+            Path::new(m.value_of("out_dir").unwrap_or(".")),
+        ),
         ("upload_metrics", _) => telemetry::upload(),
         _ => {
             cli::build_app()

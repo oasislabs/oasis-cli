@@ -67,11 +67,16 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
             (@arg VALUE: "The new configuration value")
         )
         (@subcommand ifextract =>
-            (about: "Extract interface definition(s) from a service.wasm")
+            (about: "Obtain interface definition(s) from the requested location")
             (@arg out_dir: -o --out +takes_value
                 "Where to write the interface.json(s). \
                  Defaults to current directory. Pass `-` to write to stdout.")
             (@arg IMPORT_LOC: +required "The location (URL or path) to service.wasm file(s)")
+        )
+        (@subcommand ifattach =>
+            (about: "Attach an interface definition json to a service.wasm")
+            (@arg SERVICE_WASM: +required "Path to the service bytecode")
+            (@arg IFACE_JSON: +required "Path to the service's desired interface")
         )
         (@subcommand upload_metrics => (@setting Hidden))
         (@subcommand gen_completions => (@setting Hidden))
