@@ -1,6 +1,5 @@
 use std::fmt;
 
-pub use failure::Error;
 use failure::Fail;
 
 #[derive(Fail, Debug)]

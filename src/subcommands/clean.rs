@@ -4,7 +4,7 @@ use crate::{
     workspace::{ProjectKind, Workspace},
 };
 
-pub fn clean(target_strs: &[&str]) -> Result<(), crate::errors::Error> {
+pub fn clean(target_strs: &[&str]) -> failure::Fallible<()> {
     let workspace = Workspace::populate()?;
     let targets = workspace.collect_targets(target_strs)?;
     for proj in workspace.projects_of(&targets) {

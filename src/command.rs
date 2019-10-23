@@ -1,9 +1,8 @@
 use std::{collections::BTreeMap, ffi::OsString, io, path::Path, process::Stdio};
 
-use crate::{
-    emit,
-    errors::{CliError, Error},
-};
+use failure::Fallible;
+
+use crate::{emit, errors::CliError};
 
 #[macro_export]
 macro_rules! rust_toolchain {
@@ -56,7 +55,7 @@ macro_rules! cmd {
     }}
 }
 
-pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<(), Error> {
+pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Fallible<()> {
     run_cmd_internal(name, args, None, verbosity, true)
 }
 
@@ -65,7 +64,7 @@ pub fn run_cmd_with_env(
     args: Vec<&str>,
     envs: BTreeMap<OsString, OsString>,
     verbosity: Verbosity,
-) -> Result<(), Error> {
+) -> Fallible<()> {
     run_cmd_internal(name, args, Some(envs), verbosity, true)
 }
 
@@ -75,7 +74,7 @@ fn run_cmd_internal(
     envs: Option<BTreeMap<OsString, OsString>>,
     verbosity: Verbosity,
     allow_hook: bool,
-) -> Result<(), Error> {
+) -> Fallible<()> {
     let (stdout, stderr) = match verbosity {
         Verbosity::Silent => (Stdio::null(), Stdio::null()),
         _ => (Stdio::inherit(), Stdio::inherit()),
@@ -92,7 +91,7 @@ fn run_cmd_internal(
     }
     let output = cmd.output().map_err(|e| match e.kind() {
         io::ErrorKind::NotFound => CliError::ExecNotFound(name.to_string()).into(),
-        _ => Error::from(e),
+        _ => failure::Error::from(e),
     })?;
 
     if output.status.success() {
@@ -102,7 +101,7 @@ fn run_cmd_internal(
     }
 }
 
-fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String, Error> {
+fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Fallible<String> {
     Ok(match name {
         "npm" => {
             let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
@@ -129,7 +128,7 @@ fn npm_install_if_needed<'a>(
     npm_command: &'a str,
     package_dir: &'a Path,
     verbosity: Verbosity,
-) -> Result<(), Error> {
+) -> Fallible<()> {
     if !package_dir.join("node_modules").is_dir() {
         let npm_args = vec![
             "install",

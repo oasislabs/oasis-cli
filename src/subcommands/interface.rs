@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use oasis_rpc::import::{ImportLocation, ImportedService, Importer};
 
-pub fn ifextract(import_location: &str, out_dir: &Path) -> Result<(), failure::Error> {
+pub fn ifextract(import_location: &str, out_dir: &Path) -> failure::Fallible<()> {
     crate::emit!(cmd.ifextract);
     let import_location = if let Ok(url) = import_location.parse() {
         ImportLocation::Url(url)
@@ -30,7 +30,7 @@ pub fn ifextract(import_location: &str, out_dir: &Path) -> Result<(), failure::E
     Ok(())
 }
 
-pub fn ifattach(service_wasm: &Path, iface_json: &Path) -> Result<(), failure::Error> {
+pub fn ifattach(service_wasm: &Path, iface_json: &Path) -> failure::Fallible<()> {
     crate::emit!(cmd.ifattach);
     let iface = std::fs::read(iface_json)?;
     oasis_rpc::Interface::from_slice(&iface)?;

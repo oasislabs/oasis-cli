@@ -3,10 +3,9 @@ use std::{
     str::FromStr,
 };
 
-use crate::{
-    errors::{CliError, Error},
-    oasis_dir, utils,
-};
+use failure::Fallible;
+
+use crate::{errors::CliError, oasis_dir, utils};
 
 const OASIS_GENESIS_YEAR: u8 = 19;
 const WEEKS_IN_YEAR: u8 = 54;
@@ -23,12 +22,12 @@ cfg_if::cfg_if! {
     }
 }
 
-pub fn installed_release() -> Result<Release, Error> {
+pub fn installed_release() -> Fallible<Release> {
     let installed_release_file = oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE);
     Ok(serde_json::from_slice(&fs::read(installed_release_file)?)?)
 }
 
-pub fn set(version: &str) -> Result<(), Error> {
+pub fn set(version: &str) -> Fallible<()> {
     if version == "current" {
         // ^ This is effectively a post-install hook.
         let rustup = std::env::var("CARGO_HOME")
@@ -172,7 +171,7 @@ impl PartialOrd for ReleaseVersion {
 }
 
 impl FromStr for ReleaseVersion {
-    type Err = Error;
+    type Err = failure::Error;
 
     fn from_str(version: &str) -> Result<Self, Self::Err> {
         Ok(match version {
@@ -296,7 +295,7 @@ impl PartialOrd for Tool {
 }
 
 impl FromStr for Tool {
-    type Err = Error;
+    type Err = failure::Error;
 
     fn from_str(s3_key: &str) -> Result<Self, Self::Err> {
         s3_key
@@ -349,7 +348,7 @@ impl ToolsClient {
     }
 
     #[cfg(not(test))]
-    fn fetch_manifest(&self) -> Result<impl Read, Error> {
+    fn fetch_manifest(&self) -> Fallible<impl Read> {
         Ok(self
             .0
             .get("")
@@ -358,7 +357,7 @@ impl ToolsClient {
     }
 
     #[cfg(test)]
-    fn fetch_manifest(&self) -> Result<impl Read, Error> {
+    fn fetch_manifest(&self) -> Fallible<impl Read> {
         Ok(std::io::Cursor::new(format!(
             r#"<Test>
             <Key>{0}/cache/oasis-abcdef</Key>
@@ -373,7 +372,7 @@ impl ToolsClient {
         )))
     }
 
-    fn fetch_tool(&self, tool: &Tool, out_dir: &Path) -> Result<(), Error> {
+    fn fetch_tool(&self, tool: &Tool, out_dir: &Path) -> Fallible<()> {
         let out_path = out_dir.join(&tool.name_ver);
         if out_path.exists() {
             return Ok(());

@@ -1,10 +1,11 @@
 use std::{collections::BTreeMap, ffi::OsString, path::Path};
 
+use failure::Fallible;
+
 use crate::{
     command::{run_cmd_with_env, Verbosity},
     config::Config,
     emit,
-    errors::Error,
     utils::{print_status_in, Status},
     workspace::{ProjectKind, Target, Workspace},
 };
@@ -18,7 +19,7 @@ pub struct TestOptions<'a> {
 }
 
 impl<'a> TestOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, Error> {
+    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Fallible<Self> {
         let profile_name = m.value_of("profile").unwrap();
         if let Err(e) = config.profile(profile_name) {
             return Err(e.into());
@@ -36,7 +37,7 @@ impl<'a> TestOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for TestOptions<'a> {
-    fn exec(self) -> Result<(), Error> {
+    fn exec(self) -> Fallible<()> {
         let workspace = Workspace::populate()?;
         let targets = workspace.collect_targets(&self.targets)?;
         let build_opts = super::BuildOptions {
@@ -52,7 +53,7 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
     }
 }
 
-pub fn test(targets: &[&Target], opts: TestOptions) -> Result<(), failure::Error> {
+pub fn test(targets: &[&Target], opts: TestOptions) -> failure::Fallible<()> {
     for target in targets {
         let proj = &target.project;
         let print_status = || {
@@ -79,7 +80,7 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<(), failure::Error
     Ok(())
 }
 
-fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Result<(), Error> {
+fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Fallible<()> {
     let cargo_args = get_cargo_args(target, manifest_path, &opts)?;
 
     let mut cargo_envs: BTreeMap<_, _> = std::env::vars_os().collect();
@@ -107,7 +108,7 @@ fn get_cargo_args<'a>(
     target: &'a Target,
     manifest_path: &'a Path,
     opts: &'a TestOptions,
-) -> Result<Vec<&'a str>, failure::Error> {
+) -> failure::Fallible<Vec<&'a str>> {
     let mut cargo_args = vec!["test"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
@@ -135,7 +136,7 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn test_js(manifest_path: &Path, opts: &TestOptions) -> Result<(), Error> {
+fn test_js(manifest_path: &Path, opts: &TestOptions) -> Fallible<()> {
     let package_dir = manifest_path.parent().unwrap();
 
     emit!(cmd.test.start, {

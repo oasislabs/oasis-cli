@@ -1,4 +1,4 @@
-pub fn run_chain(chain_args: Vec<String>) -> Result<(), crate::errors::Error> {
+pub fn run_chain(chain_args: Vec<String>) -> failure::Fallible<()> {
     crate::emit!(cmd.chain, { "args": chain_args });
     crate::command::run_cmd(
         "oasis-chain",

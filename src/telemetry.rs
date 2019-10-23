@@ -5,11 +5,12 @@ use std::{
     sync::Mutex,
 };
 
+use failure::Fallible;
 use flate2::{write::GzEncoder, Compression};
 use fs2::FileExt;
 use once_cell::sync::OnceCell;
 
-use crate::errors::{CliError, Error};
+use crate::errors::CliError;
 
 const SUBMIT_URL: &str = "https://telemetry.oasiscloud.io";
 const UPLOAD_THRESHOLD_FILESIZE: u64 = 50 * 1024; // 50 KiB
@@ -31,7 +32,7 @@ struct Event {
     session_id: u32,
 }
 
-pub fn init(config: &crate::config::Config) -> Result<(), Error> {
+pub fn init(config: &crate::config::Config) -> Fallible<()> {
     let tcfg = &config.telemetry();
     if !tcfg.enabled {
         return Ok(());
@@ -68,11 +69,11 @@ pub fn init(config: &crate::config::Config) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn metrics_path() -> Result<std::path::PathBuf, Error> {
+pub fn metrics_path() -> Fallible<std::path::PathBuf> {
     Ok(crate::oasis_dir!(data)?.join("metrics.jsonl"))
 }
 
-pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), Error> {
+pub fn __emit(event: &'static str, data: serde_json::Value) -> Fallible<()> {
     let Telemetry {
         session_id,
         log_file,
@@ -86,7 +87,7 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), Error>
     let mut log_file = log_file.borrow_mut();
     log_file.lock_shared()?;
 
-    let emit_to_log = || -> Result<(), Error> {
+    let emit_to_log = || -> Fallible<()> {
         writeln!(
             log_file,
             "{}",
@@ -113,7 +114,7 @@ pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), Error>
     result
 }
 
-pub fn upload() -> Result<(), Error> {
+pub fn upload() -> Fallible<()> {
     let Telemetry {
         user_id, log_file, ..
     } = match TLM.get() {
@@ -126,7 +127,7 @@ pub fn upload() -> Result<(), Error> {
 
     log_file.lock_exclusive()?;
 
-    let mut try_upload = || -> Result<(), Error> {
+    let mut try_upload = || -> Fallible<()> {
         log_file.seek(std::io::SeekFrom::Start(0))?;
         let mut rd = BufReader::new(&*log_file);
         let mut log = Vec::new();

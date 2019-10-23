@@ -1,8 +1,8 @@
 use std::io::Write as _;
 
-use colored::*;
+use failure::Fallible;
 
-use crate::errors::Error;
+use colored::*;
 
 pub fn introduction() {
     println!("Welcome to the Oasis Development Environment!");
@@ -11,7 +11,7 @@ pub fn introduction() {
     println!();
 }
 
-pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, Error> {
+pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Fallible<bool> {
     println!("{}", "1. Telemetry\n".bold().white());
     println!(
         "Would you like to help build a better developer experience by enabling telemetry?\n\
@@ -24,7 +24,7 @@ pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, Error>
     confirm("Enable telemetry?", false)
 }
 
-fn confirm(question: &str, default: bool) -> Result<bool, Error> {
+fn confirm(question: &str, default: bool) -> Fallible<bool> {
     let yn = if default { " (Y/n)" } else { " (y/N)" };
 
     let mut prompt = String::with_capacity(question.len() + yn.len());
@@ -38,7 +38,7 @@ fn confirm(question: &str, default: bool) -> Result<bool, Error> {
     Ok(response)
 }
 
-pub fn ask_string(question: &str) -> Result<String, Error> {
+pub fn ask_string(question: &str) -> Fallible<String> {
     let mut s = String::new();
     print!("{} ", question);
     std::io::stdout().flush()?;
@@ -46,7 +46,7 @@ pub fn ask_string(question: &str) -> Result<String, Error> {
     Ok(s.trim_end().to_string())
 }
 
-fn prompt_yn(prompt: &str, default: bool) -> Result<bool, Error> {
+fn prompt_yn(prompt: &str, default: bool) -> Fallible<bool> {
     Ok(loop {
         break match ask_string(prompt)?.to_lowercase().as_str() {
             "y" | "yes" | "true" => true,

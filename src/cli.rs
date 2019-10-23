@@ -1,4 +1,6 @@
-use crate::{errors::Error, help, subcommands::toolchain};
+use failure::Fallible;
+
+use crate::{help, subcommands::toolchain};
 
 pub struct App<'a, 'b> {
     version: String,
@@ -96,13 +98,13 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
     app
 }
 
-pub fn gen_completions() -> Result<(), Error> {
+pub fn gen_completions() -> Fallible<()> {
     do_gen_completions(clap::Shell::Zsh, "_oasis")?;
     do_gen_completions(clap::Shell::Bash, "completions.sh")?;
     Ok(())
 }
 
-fn do_gen_completions(shell: clap::Shell, completions_file: &'static str) -> Result<(), Error> {
+fn do_gen_completions(shell: clap::Shell, completions_file: &'static str) -> Fallible<()> {
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create(true)

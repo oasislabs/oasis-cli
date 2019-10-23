@@ -7,12 +7,10 @@ use std::{
     pin::Pin,
 };
 
+use failure::Fallible;
 use oasis_rpc::import::ImportLocation;
 
-use crate::{
-    cmd,
-    errors::{Error, WorkspaceError},
-};
+use crate::{cmd, errors::WorkspaceError};
 
 pub struct Workspace {
     root: PathBuf,
@@ -26,7 +24,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn populate() -> Result<Self, Error> {
+    pub fn populate() -> Fallible<Self> {
         let cwd = std::env::current_dir().unwrap(); // Checked during initialization.
         let repo_root = cwd
             .ancestors()
@@ -73,7 +71,7 @@ impl Workspace {
     pub fn collect_targets<'a, 't>(
         &'a self,
         target_strs: &'t [&'t str],
-    ) -> Result<Vec<&'a Target>, Error> {
+    ) -> Fallible<Vec<&'a Target>> {
         let cwd = std::env::current_dir()?;
         let target_strs = if target_strs.is_empty() {
             Cow::Owned(vec![cwd.to_str().unwrap()])
@@ -85,10 +83,7 @@ impl Workspace {
 
     /// Returns the input targets in topologically sorted order.
     /// Returns an error if a dependency is missing or cyclic.
-    pub fn construct_build_plan<'a>(
-        &'a self,
-        targets: &[&'a Target],
-    ) -> Result<Vec<&'a Target>, Error> {
+    pub fn construct_build_plan<'a>(&'a self, targets: &[&'a Target]) -> Fallible<Vec<&'a Target>> {
         let mut build_plan = Vec::new();
         for target in targets {
             self.resolve_dependencies_of(target, &mut build_plan)?;
@@ -107,7 +102,7 @@ impl Workspace {
         &'a self,
         target: &'a Target,
         build_plan: &mut Vec<&'a Target>,
-    ) -> Result<(), Error> {
+    ) -> Fallible<()> {
         if let DependencyStatus::Resolved = target.status.get() {
             return Ok(());
         }
@@ -138,7 +133,7 @@ impl Workspace {
         Ok(())
     }
 
-    fn lookup_target(&self, name: &str, path: &Path) -> Result<&Target, Error> {
+    fn lookup_target(&self, name: &str, path: &Path) -> Fallible<&Target> {
         for proj in self.projects().iter() {
             if !path.starts_with(proj.manifest_path.parent().unwrap())
                 && !path.starts_with(&proj.target_dir)
@@ -158,7 +153,7 @@ impl Workspace {
         unsafe { (&*self.projects.get()).as_slice() } // @see `struct Workspace`
     }
 
-    fn load_projects_from_manifest(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>, Error> {
+    fn load_projects_from_manifest(manifest_path: &Path) -> Fallible<Vec<Pin<Box<Project>>>> {
         let manifest_type = manifest_path
             .file_name()
             .and_then(|p| p.to_str())
@@ -346,7 +341,7 @@ impl<'a, 't> Targets<'a, 't> {
         }
     }
 
-    fn collect(self) -> Result<Vec<&'a Target>, Error> {
+    fn collect(self) -> Fallible<Vec<&'a Target>> {
         let mut targets = Vec::new();
         self.collect_wasm_targets(&mut targets);
         self.collect_path_targets(&mut targets);
@@ -417,7 +412,7 @@ impl<'a, 't> Targets<'a, 't> {
         }
     }
 
-    fn collect_service_targets(&self, targets: &mut Vec<&'a Target>) -> Result<(), Error> {
+    fn collect_service_targets(&self, targets: &mut Vec<&'a Target>) -> Fallible<()> {
         for service_name in self.service_names.iter() {
             let mut found_service = false;
             for p in self.workspace.projects().iter() {

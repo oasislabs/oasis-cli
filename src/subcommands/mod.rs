@@ -7,7 +7,7 @@ mod interface;
 mod test;
 pub mod toolchain;
 
-use crate::errors::Error;
+use failure::Fallible;
 
 pub use build::{build, BuildOptions};
 pub use chain::run_chain;
@@ -18,11 +18,11 @@ pub use interface::{ifattach, ifextract};
 pub use test::{test, TestOptions};
 
 pub trait ExecSubcommand {
-    fn exec(self) -> Result<(), Error>;
+    fn exec(self) -> Fallible<()>;
 }
 
-impl<T: ExecSubcommand> ExecSubcommand for Result<T, Error> {
-    fn exec(self) -> Result<(), Error> {
+impl<T: ExecSubcommand> ExecSubcommand for Fallible<T> {
+    fn exec(self) -> Fallible<()> {
         self?.exec()
     }
 }
