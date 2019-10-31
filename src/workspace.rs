@@ -61,6 +61,8 @@ impl Workspace {
             }
         }
 
+        debug!("detected workspace containing: {:?}", projects);
+
         Ok(Self {
             root: repo_root.to_path_buf(),
             projects: UnsafeCell::new(projects),
@@ -159,6 +161,10 @@ impl Workspace {
     }
 
     fn load_projects_from_manifest(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>, Error> {
+        debug!(
+            "loading projects from manifest: {}",
+            manifest_path.display()
+        );
         let manifest_type = manifest_path
             .file_name()
             .and_then(|p| p.to_str())

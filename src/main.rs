@@ -22,9 +22,8 @@ mod workspace;
 use subcommands::*;
 
 fn main() {
-    env_logger::Builder::from_default_env()
+    env_logger::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(log_format)
-        .filter_level(log::LevelFilter::Info)
         .init();
 
     if !dirs::has_home_dir() {

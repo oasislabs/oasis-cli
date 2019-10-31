@@ -43,12 +43,20 @@ macro_rules! cmd {
         let mut cmd = std::process::Command::new($prog);
         cmd.envs(std::env::vars_os());
         $( cmd.arg($arg); )+
-        let output = cmd.output()?;
+        debug!("running internal command: {:?}", cmd);
+        let output = cmd.output().map_err(|e| {
+            failure::format_err!(
+                "could not invoke `{}`: {}",
+                &[
+                    $prog.to_string(),
+                    $(std::ffi::OsString::from($arg).into_string().unwrap()),+
+                ].join(" "),
+                e
+            )
+        })?;
         if !output.status.success() {
             Err(failure::format_err!(
-                "{} exited with error:\n{}",
-                $prog,
-                String::from_utf8(output.stderr).unwrap()
+                "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
             ))
         } else {
             Ok(output)
@@ -90,6 +98,7 @@ fn run_cmd_internal(
     if let Some(envs) = envs {
         cmd.envs(envs);
     }
+    debug!("running command: {:?}", cmd);
     let output = cmd.output().map_err(|e| match e.kind() {
         io::ErrorKind::NotFound => CliError::ExecNotFound(name.to_string()).into(),
         _ => Error::from(e),
