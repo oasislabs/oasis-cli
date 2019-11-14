@@ -85,7 +85,7 @@ pub fn set(version: &str) -> Result<(), Error> {
         utils::print_status_ctx(utils::Status::Downloading, &tool.name, &tool.ver);
         tools_client
             .fetch_tool(&tool, &cache_dir)
-            .map_err(|e| failure::format_err!("could not download {}: {}", tool.name, e))?;
+            .map_err(|e| anyhow!("could not download {}: {}", tool.name, e))?;
     }
     for tool in release.tools.iter() {
         let dest = bin_dir.join(&tool.name);
@@ -315,7 +315,7 @@ impl FromStr for Tool {
                     _ => None,
                 },
             )
-            .ok_or_else(|| failure::format_err!("invalid tool key: `{}`", s3_key))
+            .ok_or_else(|| anyhow!("invalid tool key: `{}`", s3_key))
     }
 }
 
@@ -354,7 +354,7 @@ impl ToolsClient {
             .0
             .get("")
             .send()
-            .map_err(|e| failure::format_err!("could not fetch releases: {}", e))?)
+            .map_err(|e| anyhow!("could not fetch releases: {}", e))?)
     }
 
     #[cfg(test)]

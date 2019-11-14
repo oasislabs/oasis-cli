@@ -7,7 +7,7 @@ use std::{
 use crate::{
     command::{run_cmd, run_cmd_with_env, Verbosity},
     emit,
-    errors::Error,
+    errors::Result,
     utils::{print_status, print_status_in, Status},
     workspace::{ProjectKind, Target, Workspace},
 };
@@ -22,7 +22,7 @@ pub struct BuildOptions<'a> {
 }
 
 impl<'a> BuildOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, Error> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self> {
         Ok(Self {
             stack_size: match value_t!(m, "stack_size", u32) {
                 Ok(stack_size) => Some(stack_size),
@@ -44,19 +44,19 @@ impl<'a> BuildOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for BuildOptions<'a> {
-    fn exec(self) -> Result<(), Error> {
+    fn exec(self) -> Result<()> {
         let workspace = crate::workspace::Workspace::populate()?;
         let targets = workspace.collect_targets(&self.targets)?;
         build(&workspace, &targets, self)
     }
 }
 
-pub fn build(
-    workspace: &Workspace,
-    targets: &[&Target],
-    opts: BuildOptions,
-) -> Result<(), failure::Error> {
-    for target in workspace.construct_build_plan(targets)? {
+pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> Result<()> {
+    for target in workspace
+        .construct_build_plan(targets)?
+        .iter()
+        .filter(|t| t.is_service())
+    {
         let proj = target.project;
         if opts.verbosity > Verbosity::Quiet {
             print_status_in(
@@ -68,7 +68,7 @@ pub fn build(
 
         match &proj.kind {
             ProjectKind::Rust => build_rust(target, &proj.manifest_path, &proj.target_dir, &opts)?,
-            ProjectKind::JavaScript { .. } => build_js(&proj.manifest_path, &opts)?,
+            ProjectKind::JavaScript => build_js(&proj.manifest_path, &opts)?,
             ProjectKind::Wasm => {
                 let out_file = Path::new(&target.name).with_extension("wasm");
                 prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
@@ -83,7 +83,7 @@ fn build_rust(
     manifest_path: &Path,
     target_dir: &Path,
     opts: &BuildOptions,
-) -> Result<(), failure::Error> {
+) -> Result<()> {
     let cargo_args = get_cargo_args(target, &manifest_path, &opts)?;
 
     let cargo_envs = get_cargo_envs(&opts)?;
@@ -128,7 +128,7 @@ fn get_cargo_args<'a>(
     target: &'a Target,
     manifest_path: &'a Path,
     opts: &'a BuildOptions,
-) -> Result<Vec<&'a str>, failure::Error> {
+) -> Result<Vec<&'a str>> {
     let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
@@ -154,7 +154,7 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn get_cargo_envs(opts: &BuildOptions) -> Result<BTreeMap<OsString, OsString>, failure::Error> {
+fn get_cargo_envs(opts: &BuildOptions) -> Result<BTreeMap<OsString, OsString>> {
     let mut envs: BTreeMap<_, _> = std::env::vars_os().collect();
     if let Some(stack_size) = opts.stack_size {
         let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
@@ -174,7 +174,7 @@ fn get_cargo_envs(opts: &BuildOptions) -> Result<BTreeMap<OsString, OsString>, f
     Ok(envs)
 }
 
-pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(), failure::Error> {
+pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<()> {
     let mut module = walrus::Module::from_file(input_wasm)?;
 
     externalize_mem(&mut module);
@@ -212,7 +212,7 @@ fn externalize_mem(module: &mut walrus::Module) {
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
-fn build_js(manifest_path: &Path, opts: &BuildOptions) -> Result<(), failure::Error> {
+fn build_js(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
     let package_dir = manifest_path.parent().unwrap();
 
     emit!(cmd.build.start, { "project_type": "js" });

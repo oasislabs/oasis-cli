@@ -9,7 +9,7 @@ use crate::{
     cmd,
     command::Verbosity,
     emit,
-    errors::{CliError, Error},
+    errors::{CliError, Result},
     utils::{print_status_in, Status},
 };
 
@@ -23,7 +23,7 @@ pub struct InitOptions<'a> {
 }
 
 impl<'a> InitOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches) -> Result<Self, Error> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self> {
         let project_type = match m.value_of("type").map(|t| t.trim()) {
             Some(t) if t.is_empty() => t,
             _ => "rust",
@@ -40,13 +40,13 @@ impl<'a> InitOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for InitOptions<'a> {
-    fn exec(self) -> Result<(), Error> {
+    fn exec(self) -> Result<()> {
         init(self)
     }
 }
 
 /// Creates an Oasis project in a directory.
-pub fn init(opts: InitOptions) -> Result<(), Error> {
+pub fn init(opts: InitOptions) -> Result<()> {
     let project_type_display =
         opts.project_type[0..1].to_uppercase() + &opts.project_type[1..] + " project";
     match opts.project_type {
@@ -59,7 +59,7 @@ pub fn init(opts: InitOptions) -> Result<(), Error> {
     Ok(())
 }
 
-fn init_rust(opts: &InitOptions) -> Result<(), Error> {
+fn init_rust(opts: &InitOptions) -> Result<()> {
     let dest = &opts.dest;
     if dest.exists() {
         return Err(CliError::FileAlreadyExists(dest.display().to_string()).into());
@@ -73,9 +73,8 @@ fn init_rust(opts: &InitOptions) -> Result<(), Error> {
         Err(err) => {
             emit!(cmd.init, { "type": "rust", "source": "tgz", "repo_err": err.to_string() });
             debug!("Could not clone template repo: {}", err);
-            unpack_template_tgz(dest).map_err(|err| {
-                failure::format_err!("Could not unpack template archive: {}", err)
-            })?;
+            unpack_template_tgz(dest)
+                .map_err(|err| anyhow!("Could not unpack template archive: {}", err))?;
         }
     }
     match cmd!("git", "rev-parse", "--git-dir") {
@@ -100,7 +99,7 @@ fn init_rust(opts: &InitOptions) -> Result<(), Error> {
     Ok(())
 }
 
-fn clone_template_repo(dest: &Path) -> Result<(), Error> {
+fn clone_template_repo(dest: &Path) -> Result<()> {
     let dest = dest.canonicalize()?;
     cmd!("git", "clone", TEMPLATE_REPO_URL, &dest)?;
     let orig_dir = std::env::current_dir()?;
@@ -131,7 +130,7 @@ fn clone_template_repo(dest: &Path) -> Result<(), Error> {
     result
 }
 
-fn unpack_template_tgz(dest: &Path) -> Result<(), Error> {
+fn unpack_template_tgz(dest: &Path) -> Result<()> {
     let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(TEMPLATE_TGZ_BYTES));
     for entry in ar.entries()? {
         let mut entry = entry?;
@@ -140,7 +139,7 @@ fn unpack_template_tgz(dest: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-fn rename_project(dir: &Path, project_name: &str) -> Result<(), Error> {
+fn rename_project(dir: &Path, project_name: &str) -> Result<()> {
     let project_name = project_name.to_snake_case();
     let service_name = project_name.to_camel_case();
     for f in walkdir::WalkDir::new(dir).into_iter() {

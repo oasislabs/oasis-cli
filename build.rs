@@ -1,7 +1,7 @@
 const TEMPLATE_REPO_URL: &str = "https://github.com/oasislabs/template";
 const TEMPLATE_VER: &str = "0.2";
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
     let template_repo_path = out_dir.join("template");
     let template_path = out_dir.join("template.tar.gz");
