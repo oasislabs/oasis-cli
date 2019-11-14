@@ -56,7 +56,11 @@ pub fn build(
     targets: &[&Target],
     opts: BuildOptions,
 ) -> Result<(), failure::Error> {
-    for target in workspace.construct_build_plan(targets)? {
+    for target in workspace
+        .construct_build_plan(targets)?
+        .iter()
+        .filter(|t| t.is_service())
+    {
         let proj = target.project;
         if opts.verbosity > Verbosity::Quiet {
             print_status_in(
@@ -68,7 +72,7 @@ pub fn build(
 
         match &proj.kind {
             ProjectKind::Rust => build_rust(target, &proj.manifest_path, &proj.target_dir, &opts)?,
-            ProjectKind::JavaScript { .. } => build_js(&proj.manifest_path, &opts)?,
+            ProjectKind::JavaScript => build_js(&proj.manifest_path, &opts)?,
             ProjectKind::Wasm => {
                 let out_file = Path::new(&target.name).with_extension("wasm");
                 prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;

@@ -94,10 +94,10 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
 
 pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::Error> {
     let mut found_deployable = false;
-    for target in targets {
+    for target in targets.iter().filter(|t| t.is_deploy()) {
         let proj = &target.project;
         match &proj.kind {
-            ProjectKind::JavaScript { deployable, .. } if *deployable => {
+            ProjectKind::JavaScript => {
                 if opts.verbosity > Verbosity::Quiet {
                     print_status_in(
                         Status::Deploying,
@@ -108,6 +108,7 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::E
                 found_deployable = true;
                 deploy_js(&proj.manifest_path, &opts)?
             }
+            ProjectKind::Rust => {}
             _ => {}
         }
     }

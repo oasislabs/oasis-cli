@@ -38,7 +38,7 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
             (about: "Run tests against a simulated Oasis runtime")
             (@arg verbose: +multiple -v --verbose "Increase verbosity")
             (@arg quiet: +multiple -q --quiet "Decrease verbosity")
-            (@arg debug: --debug "Build without optimizations")
+            (@arg debug: --release "Build with optimizations")
             (@arg profile: -p --profile default_value[local]
                 "Set testing profile. Run `oasis config profile` \nto list available profiles.")
             (@arg TARGETS: +multiple "Specify names or paths of services and apps to build")

@@ -11,7 +11,7 @@ use crate::{
 
 pub struct TestOptions<'a> {
     pub targets: Vec<&'a str>,
-    pub debug: bool,
+    pub release: bool,
     pub profile: &'a str,
     pub verbosity: Verbosity,
     pub tester_args: Vec<&'a str>,
@@ -24,7 +24,7 @@ impl<'a> TestOptions<'a> {
             return Err(e.into());
         }
         Ok(Self {
-            debug: m.is_present("debug"),
+            release: m.is_present("release"),
             targets: m.values_of("TARGETS").unwrap_or_default().collect(),
             profile: profile_name,
             verbosity: Verbosity::from(
@@ -53,7 +53,7 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
 }
 
 pub fn test(targets: &[&Target], opts: TestOptions) -> Result<(), failure::Error> {
-    for target in targets {
+    for target in targets.iter().filter(|t| t.is_test()) {
         let proj = &target.project;
         let print_status = || {
             if opts.verbosity > Verbosity::Quiet {
@@ -65,11 +65,11 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<(), failure::Error
             }
         };
         match &proj.kind {
-            ProjectKind::Rust { .. } => {
+            ProjectKind::Rust => {
                 print_status();
                 test_rust(target, &proj.manifest_path, &opts)?;
             }
-            ProjectKind::JavaScript { testable, .. } if *testable => {
+            ProjectKind::JavaScript => {
                 print_status();
                 test_js(&proj.manifest_path, &opts)?;
             }
@@ -90,7 +90,7 @@ fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Resul
 
     emit!(cmd.test.start, {
         "project_type": "rust",
-        "debug": opts.debug,
+        "release": opts.release,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
@@ -117,11 +117,15 @@ fn get_cargo_args<'a>(
         cargo_args.push("-vvv")
     }
 
-    if !opts.debug {
+    if opts.release {
         cargo_args.push("--release");
     }
 
-    cargo_args.push("--bin");
+    if target.is_service() {
+        cargo_args.push("--bin");
+    } else if target.is_test() {
+        cargo_args.push("--test");
+    }
     cargo_args.push(&target.name);
 
     cargo_args.push("--manifest-path");
