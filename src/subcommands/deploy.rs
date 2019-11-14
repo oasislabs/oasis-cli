@@ -6,7 +6,7 @@ use crate::{
     command::{run_cmd_with_env, Verbosity},
     config::{Config, DEFAULT_GATEWAY_URL},
     emit,
-    errors::{Error, ProfileError, ProfileErrorKind},
+    errors::{ProfileError, ProfileErrorKind, Result},
     utils::{print_status_in, Status},
     workspace::{ProjectKind, Target, Workspace},
 };
@@ -42,7 +42,7 @@ pub struct DeployOptions<'a> {
 }
 
 impl<'a> DeployOptions<'a> {
-    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self, Error> {
+    pub fn new(m: &'a clap::ArgMatches, config: &Config) -> Result<Self> {
         let profile_name = m.value_of("profile").unwrap();
         match config.profile(profile_name) {
             Ok(_) => (),
@@ -57,7 +57,7 @@ impl<'a> DeployOptions<'a> {
                 .unwrap_or_default() =>
             {
                 print_need_deploy_key_message!(profile_name);
-                return Err(failure::format_err!(
+                return Err(anyhow::anyhow!(
                     "`profile.{}.credential` must be set to deploy on the Oasis Devnet.",
                     profile_name
                 ));
@@ -76,7 +76,7 @@ impl<'a> DeployOptions<'a> {
 }
 
 impl<'a> super::ExecSubcommand for DeployOptions<'a> {
-    fn exec(self) -> Result<(), Error> {
+    fn exec(self) -> Result<()> {
         let workspace = Workspace::populate()?;
         let targets = workspace.collect_targets(&self.targets)?;
         let build_opts = super::BuildOptions {
@@ -92,7 +92,7 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
     }
 }
 
-pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::Error> {
+pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<()> {
     let mut found_deployable = false;
     for target in targets.iter().filter(|t| t.is_deploy()) {
         let proj = &target.project;
@@ -118,7 +118,7 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<(), failure::E
     Ok(())
 }
 
-fn deploy_js(manifest_path: &Path, opts: &DeployOptions) -> Result<(), failure::Error> {
+fn deploy_js(manifest_path: &Path, opts: &DeployOptions) -> Result<()> {
     let package_dir = manifest_path.parent().unwrap();
 
     emit!(cmd.deploy.start, {

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, ffi::OsString, io, path::Path, process::Stdio};
 
 use crate::{
     emit,
-    errors::{CliError, Error},
+    errors::{CliError, Error, Result},
 };
 
 #[macro_export]
@@ -45,7 +45,7 @@ macro_rules! cmd {
         $( cmd.arg($arg); )+
         debug!("running internal command: {:?}", cmd);
         let output = cmd.output().map_err(|e| {
-            failure::format_err!(
+            anyhow!(
                 "could not invoke `{}`: {}",
                 &[
                     $prog.to_string(),
@@ -55,7 +55,7 @@ macro_rules! cmd {
             )
         })?;
         if !output.status.success() {
-            Err(failure::format_err!(
+            Err(anyhow!(
                 "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
             ))
         } else {
@@ -64,7 +64,7 @@ macro_rules! cmd {
     }}
 }
 
-pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<(), Error> {
+pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
     run_cmd_internal(name, args, None, verbosity, true)
 }
 
@@ -73,7 +73,7 @@ pub fn run_cmd_with_env(
     args: Vec<&str>,
     envs: BTreeMap<OsString, OsString>,
     verbosity: Verbosity,
-) -> Result<(), Error> {
+) -> Result<()> {
     run_cmd_internal(name, args, Some(envs), verbosity, true)
 }
 
@@ -83,7 +83,7 @@ fn run_cmd_internal(
     envs: Option<BTreeMap<OsString, OsString>>,
     verbosity: Verbosity,
     allow_hook: bool,
-) -> Result<(), Error> {
+) -> Result<()> {
     let (stdout, stderr) = match verbosity {
         Verbosity::Silent => (Stdio::null(), Stdio::null()),
         _ => (Stdio::inherit(), Stdio::inherit()),
@@ -111,7 +111,7 @@ fn run_cmd_internal(
     }
 }
 
-fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String, Error> {
+fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String> {
     Ok(match name {
         "npm" => {
             let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
@@ -138,7 +138,7 @@ fn npm_install_if_needed<'a>(
     npm_command: &'a str,
     package_dir: &'a Path,
     verbosity: Verbosity,
-) -> Result<(), Error> {
+) -> Result<()> {
     if !package_dir.join("node_modules").is_dir() {
         let npm_args = vec![
             "install",

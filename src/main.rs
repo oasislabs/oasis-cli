@@ -1,6 +1,8 @@
 #![feature(bind_by_move_pattern_guards, concat_idents)]
 
 #[macro_use]
+extern crate anyhow;
+#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate log;

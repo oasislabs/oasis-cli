@@ -5,12 +5,11 @@ use std::{
     str::FromStr,
 };
 
-use failure::format_err;
 use reqwest::Url;
 
 use crate::{
     dialogue, emit,
-    errors::{CliError, Error, ProfileError, ProfileErrorKind},
+    errors::{CliError, Error, ProfileError, ProfileErrorKind, Result},
 };
 
 pub struct Config {
@@ -75,7 +74,7 @@ impl Config {
         config
     }
 
-    pub fn load() -> Result<Self, Error> {
+    pub fn load() -> Result<Self> {
         let config_path = Self::default_path()?;
         if !config_path.exists() {
             if !Self::skip_generate() {
@@ -89,7 +88,7 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> Result<(), Error> {
+    pub fn save(&self) -> Result<()> {
         if !Self::skip_generate() && !self.dirty {
             self.write_to_file(Self::default_path()?)
         } else {
@@ -130,7 +129,7 @@ impl Config {
         })
     }
 
-    pub fn edit(&mut self, key: &str, value: &str) -> Result<(), Error> {
+    pub fn edit(&mut self, key: &str, value: &str) -> Result<()> {
         emit!(cmd.config.edit, { "key": key });
 
         let mut key_comps = key.split('.');
@@ -140,9 +139,7 @@ impl Config {
                 let profile_name = match key_comps.next() {
                     Some(name) => name,
                     None => {
-                        return Err(format_err!(
-                            "missing profile name in `profile.<name>.<key>`.",
-                        ))
+                        return Err(anyhow!("missing profile name in `profile.<name>.<key>`.",))
                     }
                 };
                 let profile = match self
@@ -163,7 +160,7 @@ impl Config {
                 };
                 let profile_key = key_comps.next();
                 if let Some(extra_comp) = key_comps.next() {
-                    return Err(format_err!(
+                    return Err(anyhow!(
                         "unknown profile configuration subkey `{}`",
                         extra_comp
                     ));
@@ -183,14 +180,14 @@ impl Config {
                         })?
                         .to_string(),
                     Some(key) => {
-                        return Err(format_err!(
+                        return Err(anyhow!(
                             "unknown profile configuration key `{}`.\n\n{}",
                             key,
                             profile_config_help!()
                         ));
                     }
                     None => {
-                        return Err(format_err!(
+                        return Err(anyhow!(
                             "missing profile configuration key in `profile.{}.<key>`.\n\n{}",
                             profile_name,
                             profile_config_help!()
@@ -202,7 +199,7 @@ impl Config {
             Some("telemetry") => {
                 let telemetry_key = key_comps.next();
                 if let Some(extra_comp) = key_comps.next() {
-                    return Err(format_err!(
+                    return Err(anyhow!(
                         "unknown telemetry configuration subkey `{}`.",
                         extra_comp
                     ));
@@ -210,23 +207,23 @@ impl Config {
                 match telemetry_key {
                     Some("enabled") => self.enable_telemetry(value.parse()?),
                     Some("user_id") => {
-                        return Err(format_err!(
+                        return Err(anyhow!(
                             "we'd prefer if you didn't modify `user_id`. \
                              If you feel strongly\nabout it, you can edit \
                              the config file directly."
                         ))
                     }
                     _ => {
-                        return Err(format_err!(
+                        return Err(anyhow!(
                             "unknown configuration option: `{}`. Available options are `enabled`.",
                             key
                         ))
                     }
                 }
             }
-            Some(key) => return Err(format_err!("unknown configuration option: `{}`", key)),
+            Some(key) => return Err(anyhow!("unknown configuration option: `{}`", key)),
             None => {
-                return Err(format_err!(
+                return Err(anyhow!(
                     "available configuration options are: `profile`, `telemetry`",
                 ))
             }
@@ -262,7 +259,7 @@ impl Config {
 }
 
 impl Config {
-    fn generate(path: &Path) -> Result<Self, Error> {
+    fn generate(path: &Path) -> Result<Self> {
         let mut config = Self::new();
 
         dialogue::introduction();
@@ -281,13 +278,13 @@ impl Config {
         Ok(config)
     }
 
-    fn default_path() -> Result<PathBuf, Error> {
+    fn default_path() -> Result<PathBuf> {
         let mut config_path = crate::oasis_dir!(config)?;
         config_path.push("config.toml");
         Ok(config_path)
     }
 
-    fn read_from_file(path: &Path) -> Result<Self, Error> {
+    fn read_from_file(path: &Path) -> Result<Self> {
         let config_string = fs::read_to_string(path)
             .map_err(|err| CliError::ReadFile(path.display().to_string(), err.to_string()))?;
         let doc = toml_edit::Document::from_str(&config_string)
@@ -295,7 +292,7 @@ impl Config {
         Ok(Self { doc, dirty: false })
     }
 
-    fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    fn write_to_file(&self, path: impl AsRef<Path>) -> Result<()> {
         fs::write(&path, self.doc.to_string_in_original_order())?;
 
         let mut perms = fs::metadata(&path)?.permissions();
@@ -420,7 +417,7 @@ impl FromStr for Credential {
                 return Ok(Credential::ApiToken(s.to_string()));
             }
         }
-        Err(format_err!("must be a private key, mnemonic, or API token"))
+        Err(anyhow!("must be a private key, mnemonic, or API token"))
     }
 }
 
@@ -471,15 +468,15 @@ impl Profile {
     }
 }
 
-fn parse_gateway_url(url_str: &str) -> Result<Url, Error> {
+fn parse_gateway_url(url_str: &str) -> Result<Url> {
     let url = Url::parse(url_str)?;
     if !url.has_host() {
-        return Err(format_err!("URL must specify a domain"));
+        return Err(anyhow!("URL must specify a domain"));
     }
     match url.scheme() {
         "ws" | "wss" | "http" | "https" => {}
         scheme => {
-            return Err(format_err!(
+            return Err(anyhow!(
                 "invalid URL scheme `{}`. Must be http(s) or ws(s).",
                 scheme
             ));

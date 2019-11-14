@@ -59,7 +59,7 @@ macro_rules! ensure_dir {
         let mut dir = concat_idents!($dir, _dir)();
         $( dir.push($subdir); )?
         if dir.is_file() {
-            Err(failure::format_err!(
+            Err(anyhow!(
                 "{} dir `{}` is a file",
                 stringify!($dir),
                 dir.display()
