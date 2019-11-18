@@ -4,22 +4,22 @@ pub use anyhow::{Error, Result};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CliError {
-    #[error("errored to open logging file `{}`", .0)]
+    #[error("errored to open logging file `{0}`")]
     OpenLogFile(String),
 
-    #[error("process `{}` exited with code `{}`", .0, .1)]
+    #[error("process `{0}` exited with code `{1}`")]
     ProcessExit(String, i32),
 
-    #[error("errored to parse `{}`: `{}`", .0, .1)]
+    #[error("errored to parse `{0}`: `{1}`")]
     ConfigParse(String, String),
 
-    #[error("could not run `{}`. Please add it to your PATH", .0)]
+    #[error("could not run `{0}`. Please add it to your PATH")]
     ExecNotFound(String),
 
-    #[error("could not read file `{}`: `{}`", .0, .1)]
+    #[error("could not read file `{0}`: `{1}`")]
     ReadFile(String, String),
 
-    #[error("destination path `{}` already exists", .0)]
+    #[error("destination path `{0}` already exists")]
     FileAlreadyExists(String),
 
     #[error("unknown toolchain version: `{}`", .0)]
@@ -28,13 +28,13 @@ pub enum CliError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum WorkspaceError {
-    #[error("could not find workspace in `{}` or any parent directory", .0)]
+    #[error("could not find workspace in `{0}` or any parent directory")]
     NoWorkspace(String),
 
-    #[error("could not find dependency `{}` in the current workspace", .0)]
+    #[error("could not find dependency `{0}` in the current workspace")]
     MissingDependency(String),
 
-    #[error("`{}` has a circular dependency on `{}`", .0, .1)]
+    #[error("`{0}` has a circular dependency on `{1}`")]
     CircularDependency(String, String),
 }
 
