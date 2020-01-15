@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, ffi::OsString, path::Path};
+use std::{collections::BTreeMap, ffi::OsString};
 
 use crate::{
-    command::{run_cmd_with_env, Verbosity},
+    command::{run_builder, Builder, Verbosity},
     config::Config,
     emit,
     errors::Result,
@@ -67,20 +67,24 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<()> {
         match &proj.kind {
             ProjectKind::Rust => {
                 print_status();
-                test_rust(target, &proj.manifest_path, &opts)?;
+                test_rust(target, &opts)?;
             }
             ProjectKind::JavaScript => {
                 print_status();
-                test_js(&proj.manifest_path, &opts)?;
+                test_javascript(target, &opts)?;
             }
-            _ => (),
+            ProjectKind::TypeScript => {
+                print_status();
+                test_typescript(target, &opts)?;
+            }
+            ProjectKind::Wasm => {}
         }
     }
     Ok(())
 }
 
-fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Result<()> {
-    let cargo_args = get_cargo_args(target, manifest_path, &opts)?;
+fn test_rust(target: &Target, opts: &TestOptions) -> Result<()> {
+    let cargo_args = get_cargo_args(target, &opts)?;
 
     let mut cargo_envs: BTreeMap<_, _> = std::env::vars_os().collect();
     cargo_envs.insert(
@@ -94,7 +98,12 @@ fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Resul
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_cmd_with_env("cargo", cargo_args, cargo_envs, opts.verbosity) {
+    if let Err(e) = run_builder(
+        Builder::for_target(target),
+        cargo_args,
+        Some(cargo_envs),
+        opts.verbosity,
+    ) {
         emit!(cmd.test.error);
         return Err(e);
     };
@@ -103,11 +112,7 @@ fn test_rust(target: &Target, manifest_path: &Path, opts: &TestOptions) -> Resul
     Ok(())
 }
 
-fn get_cargo_args<'a>(
-    target: &'a Target,
-    manifest_path: &'a Path,
-    opts: &'a TestOptions,
-) -> Result<Vec<&'a str>> {
+fn get_cargo_args<'a>(target: &'a Target, opts: &'a TestOptions) -> Result<Vec<&'a str>> {
     let mut cargo_args = vec!["test"];
     if opts.verbosity < Verbosity::Normal {
         cargo_args.push("--quiet");
@@ -129,7 +134,7 @@ fn get_cargo_args<'a>(
     cargo_args.push(&target.name);
 
     cargo_args.push("--manifest-path");
-    cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
+    cargo_args.push(target.project.manifest_path.as_os_str().to_str().unwrap());
 
     if !opts.tester_args.is_empty() {
         cargo_args.push("--");
@@ -139,8 +144,8 @@ fn get_cargo_args<'a>(
     Ok(cargo_args)
 }
 
-fn test_js(manifest_path: &Path, opts: &TestOptions) -> Result<()> {
-    let package_dir = manifest_path.parent().unwrap();
+fn test_javascript(target: &Target, opts: &TestOptions) -> Result<()> {
+    let package_dir = target.project.manifest_path.parent().unwrap();
 
     emit!(cmd.test.start, {
         "project_type": "js",
@@ -155,16 +160,25 @@ fn test_js(manifest_path: &Path, opts: &TestOptions) -> Result<()> {
     }
     npm_args.extend(opts.tester_args.iter());
 
-    let mut npm_envs: BTreeMap<_, _> = std::env::vars_os().collect();
+    let mut npm_envs = BTreeMap::new();
     npm_envs.insert(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_cmd_with_env("npm", npm_args, npm_envs, opts.verbosity) {
+    if let Err(e) = run_builder(
+        Builder::for_target(target),
+        npm_args,
+        Some(npm_envs),
+        opts.verbosity,
+    ) {
         emit!(cmd.test.error);
         return Err(e);
     }
 
     emit!(cmd.test.done);
     Ok(())
+}
+
+fn test_typescript(target: &Target, opts: &TestOptions) -> Result<()> {
+    unimplemented!()
 }

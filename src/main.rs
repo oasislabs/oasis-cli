@@ -15,6 +15,7 @@ mod config;
 mod dialogue;
 mod dirs;
 mod errors;
+mod gen;
 mod help;
 mod subcommands;
 mod telemetry;

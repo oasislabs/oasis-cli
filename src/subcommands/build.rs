@@ -68,7 +68,8 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
 
         match &proj.kind {
             ProjectKind::Rust => build_rust(target, &proj.manifest_path, &proj.target_dir, &opts)?,
-            ProjectKind::JavaScript => build_js(&proj.manifest_path, &opts)?,
+            ProjectKind::JavaScript => build_javascript(&proj.manifest_path, &opts)?,
+            ProjectKind::TypeScript => build_typescript(&proj.manifest_path, &opts)?,
             ProjectKind::Wasm => {
                 let out_file = Path::new(&target.name).with_extension("wasm");
                 prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
@@ -212,7 +213,22 @@ fn externalize_mem(module: &mut walrus::Module) {
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
-fn build_js(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
+fn build_javascript(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
+    let package_dir = manifest_path.parent().unwrap();
+
+    emit!(cmd.build.start, { "project_type": "js" });
+
+    run_cmd(
+        &"npm",
+        vec!["run", "--prefix", package_dir.to_str().unwrap(), "build"],
+        opts.verbosity,
+    )?;
+
+    emit!(cmd.build.done);
+    Ok(())
+}
+
+fn build_typescript(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
     let package_dir = manifest_path.parent().unwrap();
 
     emit!(cmd.build.start, { "project_type": "js" });

@@ -207,6 +207,7 @@ impl Workspace {
                         build: is_service,
                         test: is_service /* unit tests */ || is_test,
                         deploy: false, // Rust deploys are not yet supported
+                        clean: true,   // Rust projects are always cleanable
                     };
                     let deps = match &pkg.metadata {
                         Some(metadata) => {
@@ -264,6 +265,7 @@ impl Workspace {
                         build: false, // TS is not (yet) a supported language
                         test: s.contains_key("test"),
                         deploy: s.contains_key("deploy"),
+                        clean: s.contains_key("clean"),
                     }
                 })
                 .unwrap_or_default();
@@ -454,6 +456,7 @@ pub struct Project {
 pub enum ProjectKind {
     Rust,
     JavaScript,
+    TypeScript,
     Wasm,
 }
 
@@ -478,6 +481,10 @@ impl Target {
     pub fn is_deploy(&self) -> bool {
         self.phases.deploy
     }
+
+    pub fn is_clean(&self) -> bool {
+        self.phases.clean
+    }
 }
 
 impl fmt::Debug for Target {
@@ -496,6 +503,7 @@ pub struct Phases {
     build: bool,
     test: bool,
     deploy: bool,
+    clean: bool,
 }
 
 #[derive(Debug)]

@@ -9,8 +9,8 @@ impl A {
     }
 
     pub fn say_hello(&self, _ctx: &Context) -> String {
-        b::BClient::at(Address::default());
-        c::CClient::at(Address::default());
+        b::BClient::new(Address::default());
+        c::CClient::new(Address::default());
         String::new()
     }
 }

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, ffi::OsString, io, path::Path, process::Stdio};
 use crate::{
     emit,
     errors::{CliError, Error, Result},
+    workspace::{Project, ProjectKind, Target},
 };
 
 #[macro_export]
@@ -44,7 +45,7 @@ macro_rules! cmd {
         cmd.envs(std::env::vars_os());
         $( cmd.arg($arg); )+
         debug!("running internal command: {:?}", cmd);
-        let output = cmd.output().map_err(|e| {
+        cmd.output().map_err(|e| {
             anyhow!(
                 "could not invoke `{}`: {}",
                 &[
@@ -53,19 +54,124 @@ macro_rules! cmd {
                 ].join(" "),
                 e
             )
-        })?;
-        if !output.status.success() {
-            Err(anyhow!(
-                "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
-            ))
-        } else {
-            Ok(output)
-        }
+        })
+        .and_then(|output| {
+            if !output.status.success() {
+                Err(anyhow!(
+                        "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
+                ))
+            } else {
+                Ok(output)
+            }
+        })
     }}
 }
 
+pub struct Builder<'a> {
+    pub workdir: &'a Path,
+    pub kind: BuilderKind,
+}
+
+impl<'a> Builder<'a> {
+    pub fn for_target(target: &'a Target) -> Self {
+        Self {
+            workdir: &target.path,
+            kind: BuilderKind::detect(target.project.kind, &target.path),
+        }
+    }
+
+    pub fn for_project(project: &'a Project) -> Self {
+        let workdir = project.manifest_path.parent().unwrap();
+        Self {
+            workdir,
+            kind: BuilderKind::detect(project.kind, workdir),
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self.kind {
+            BuilderKind::Cargo => "cargo",
+            BuilderKind::Npm => "npm",
+            BuilderKind::Yarn => "yarn",
+        }
+    }
+
+    fn insert_default_args(&self, args: &mut Vec<&'a str>) {
+        // insert workdir directive
+        args.push(match self.kind {
+            BuilderKind::Cargo => "--manifest-path",
+            BuilderKind::Npm => "--prefix",
+            BuilderKind::Yarn => "--cwd",
+        });
+        args.push(self.workdir.to_str().unwrap());
+
+        if let BuilderKind::Cargo = self.kind {
+            if !args.get(0).unwrap_or(&"").starts_with('+') {
+                args.insert(0, concat!("+", rust_toolchain!()))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum BuilderKind {
+    Cargo,
+    Npm,
+    Yarn,
+}
+
+impl BuilderKind {
+    fn detect(project_kind: ProjectKind, workdir: &Path) -> Self {
+        match project_kind {
+            ProjectKind::Wasm => unreachable!("wasm is not buildable"),
+            ProjectKind::Rust => BuilderKind::Cargo,
+            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                if workdir.join("yarn.lock").is_file() || cmd!("which", "yarn").is_ok() {
+                    BuilderKind::Yarn
+                } else {
+                    BuilderKind::Npm
+                }
+            }
+        }
+    }
+}
+
+fn install_node_modules(builder: &Builder) -> Result<()> {
+    if !builder.workdir.join("node_modules").is_dir() {
+        let mut args = vec!["install", "--silent"];
+        builder.insert_default_args(&mut args);
+        if let Err(e) = run_cmd_internal(builder.name(), args, None, Verbosity::Silent) {
+            emit!(cmd.build.error, {
+                "cause": format!("{} install", builder.name())
+            });
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+pub fn run_builder<'a>(
+    builder: Builder<'a>,
+    mut args: Vec<&'a str>,
+    extra_envs: Option<BTreeMap<OsString, OsString>>,
+    verbosity: Verbosity,
+) -> Result<()> {
+    builder.insert_default_args(&mut args);
+    if let BuilderKind::Npm | BuilderKind::Yarn = builder.kind {
+        install_node_modules(&builder)?;
+    }
+    let envs = match extra_envs {
+        Some(mut extra_envs) => {
+            extra_envs.extend(std::env::vars_os());
+            extra_envs
+        }
+        None => std::env::vars_os().collect::<BTreeMap<_, _>>(),
+    };
+    run_cmd_internal(builder.name(), args, Some(envs), verbosity)
+}
+
 pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
-    run_cmd_internal(name, args, None, verbosity, true)
+    run_cmd_internal(name, args, None /* envs */, verbosity)
 }
 
 pub fn run_cmd_with_env(
@@ -74,25 +180,20 @@ pub fn run_cmd_with_env(
     envs: BTreeMap<OsString, OsString>,
     verbosity: Verbosity,
 ) -> Result<()> {
-    run_cmd_internal(name, args, Some(envs), verbosity, true)
+    run_cmd_internal(name, args, Some(envs), verbosity)
 }
 
 fn run_cmd_internal(
     name: &str,
-    mut args: Vec<&str>,
+    args: Vec<&str>,
     envs: Option<BTreeMap<OsString, OsString>>,
     verbosity: Verbosity,
-    allow_hook: bool,
 ) -> Result<()> {
     let (stdout, stderr) = match verbosity {
         Verbosity::Silent => (Stdio::null(), Stdio::null()),
         _ => (Stdio::inherit(), Stdio::inherit()),
     };
-    let mut cmd = std::process::Command::new(if allow_hook {
-        hook_cmd(name, &mut args, verbosity)?
-    } else {
-        name.to_string()
-    });
+    let mut cmd = std::process::Command::new(name.to_string());
     cmd.args(args).stdout(stdout).stderr(stderr);
 
     if let Some(envs) = envs {
@@ -109,47 +210,4 @@ fn run_cmd_internal(
     } else {
         Err(CliError::ProcessExit(name.to_string(), output.status.code().unwrap()).into())
     }
-}
-
-fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String> {
-    Ok(match name {
-        "npm" => {
-            let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
-            let package_dir = Path::new(
-                args.iter()
-                    .position(|a| *a == "--prefix")
-                    .map(|p| args[p + 1])
-                    .unwrap_or(""),
-            );
-            npm_install_if_needed(&npm, &package_dir, verbosity)?;
-            npm
-        }
-        "cargo" => {
-            if !args.get(0).unwrap_or(&"").starts_with('+') {
-                args.insert(0, concat!("+", rust_toolchain!()))
-            }
-            name.to_string()
-        }
-        _ => name.to_string(),
-    })
-}
-
-fn npm_install_if_needed<'a>(
-    npm_command: &'a str,
-    package_dir: &'a Path,
-    verbosity: Verbosity,
-) -> Result<()> {
-    if !package_dir.join("node_modules").is_dir() {
-        let npm_args = vec![
-            "install",
-            "--prefix",
-            package_dir.to_str().unwrap(),
-            "--quiet",
-        ];
-        if let Err(e) = run_cmd_internal(npm_command, npm_args, None, verbosity, false) {
-            emit!(cmd.build.error, { "cause": "npm install" });
-            return Err(e);
-        }
-    }
-    Ok(())
 }
