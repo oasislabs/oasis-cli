@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    command::{run_cmd, run_cmd_with_env, Verbosity},
+    command::{BuildTool, Verbosity},
     emit,
     errors::Result,
     utils::{print_status, print_status_in, Status},
@@ -55,7 +55,7 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
     for target in workspace
         .construct_build_plan(targets)?
         .iter()
-        .filter(|t| t.is_service())
+        .filter(|t| t.is_buildable())
     {
         let proj = target.project;
         if opts.verbosity > Verbosity::Quiet {
@@ -67,9 +67,8 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
         }
 
         match &proj.kind {
-            ProjectKind::Rust => build_rust(target, &proj.manifest_path, &proj.target_dir, &opts)?,
-            ProjectKind::JavaScript => build_javascript(&proj.manifest_path, &opts)?,
-            ProjectKind::TypeScript => build_typescript(&proj.manifest_path, &opts)?,
+            ProjectKind::Rust => build_rust(target, &opts)?,
+            ProjectKind::JavaScript | ProjectKind::TypeScript => build_javascript(&target, &opts)?,
             ProjectKind::Wasm => {
                 let out_file = Path::new(&target.name).with_extension("wasm");
                 prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
@@ -79,28 +78,45 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
     Ok(())
 }
 
-fn build_rust(
-    target: &Target,
-    manifest_path: &Path,
-    target_dir: &Path,
-    opts: &BuildOptions,
-) -> Result<()> {
-    let cargo_args = get_cargo_args(target, &manifest_path, &opts)?;
+fn build_rust(target: &Target, opts: &BuildOptions) -> Result<()> {
+    let mut args = vec!["--target=wasm32-wasi"];
+    if !opts.debug {
+        args.push("--release");
+    }
+    args.push("--bin");
+    args.push(&target.name);
+    args.extend(opts.builder_args.iter());
 
-    let cargo_envs = get_cargo_envs(&opts)?;
+    let mut envs: BTreeMap<OsString, OsString> = BTreeMap::new();
+    if let Some(stack_size) = opts.stack_size {
+        let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
+        match envs.entry(OsString::from("RUSTFLAGS")) {
+            Entry::Occupied(mut ent) => ent.get_mut().push(stack_size_flag),
+            Entry::Vacant(ent) => {
+                ent.insert(stack_size_flag);
+            }
+        }
+    }
+    if !opts.wasi {
+        envs.insert(
+            OsString::from("RUSTC_WRAPPER"),
+            OsString::from("oasis-build"),
+        );
+    }
 
     emit!(cmd.build.start, {
-        "project_type": "rust",
+        "project_type": target.project.kind.name(),
         "wasi": opts.wasi,
         "stack_size": opts.stack_size,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_cmd_with_env("cargo", cargo_args, cargo_envs, opts.verbosity) {
+    if let Err(e) = BuildTool::for_target(target).build(args, envs, opts.verbosity) {
         emit!(cmd.build.error);
         return Err(e);
     };
 
+    let target_dir = &target.project.target_dir;
     let services_dir = target_dir.join("service");
     if !services_dir.is_dir() {
         std::fs::create_dir_all(&services_dir)?;
@@ -123,56 +139,6 @@ fn build_rust(
 
     emit!(cmd.build.done);
     Ok(())
-}
-
-fn get_cargo_args<'a>(
-    target: &'a Target,
-    manifest_path: &'a Path,
-    opts: &'a BuildOptions,
-) -> Result<Vec<&'a str>> {
-    let mut cargo_args = vec!["build", "--target=wasm32-wasi"];
-    if opts.verbosity < Verbosity::Normal {
-        cargo_args.push("--quiet");
-    } else if opts.verbosity == Verbosity::High {
-        cargo_args.push("--verbose");
-    } else if opts.verbosity == Verbosity::Debug {
-        cargo_args.push("-vvv")
-    }
-
-    if !opts.debug {
-        cargo_args.push("--release");
-    }
-
-    cargo_args.push("--bin");
-    cargo_args.push(&target.name);
-
-    if !opts.builder_args.is_empty() {
-        cargo_args.extend(opts.builder_args.iter());
-    }
-    cargo_args.push("--manifest-path");
-    cargo_args.push(manifest_path.as_os_str().to_str().unwrap());
-
-    Ok(cargo_args)
-}
-
-fn get_cargo_envs(opts: &BuildOptions) -> Result<BTreeMap<OsString, OsString>> {
-    let mut envs: BTreeMap<_, _> = std::env::vars_os().collect();
-    if let Some(stack_size) = opts.stack_size {
-        let stack_size_flag = OsString::from(format!(" -C link-args=-zstack-size={}", stack_size));
-        match envs.entry(OsString::from("RUSTFLAGS")) {
-            Entry::Occupied(mut ent) => ent.get_mut().push(stack_size_flag),
-            Entry::Vacant(ent) => {
-                ent.insert(stack_size_flag);
-            }
-        }
-    }
-    if !opts.wasi {
-        envs.insert(
-            OsString::from("RUSTC_WRAPPER"),
-            OsString::from("oasis-build"),
-        );
-    }
-    Ok(envs)
 }
 
 pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<()> {
@@ -213,29 +179,12 @@ fn externalize_mem(module: &mut walrus::Module) {
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
-fn build_javascript(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
-    let package_dir = manifest_path.parent().unwrap();
+fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
+    emit!(cmd.build.start, { "project_type": target.project.kind.name() });
 
-    emit!(cmd.build.start, { "project_type": "js" });
-
-    run_cmd(
-        &"npm",
-        vec!["run", "--prefix", package_dir.to_str().unwrap(), "build"],
-        opts.verbosity,
-    )?;
-
-    emit!(cmd.build.done);
-    Ok(())
-}
-
-fn build_typescript(manifest_path: &Path, opts: &BuildOptions) -> Result<()> {
-    let package_dir = manifest_path.parent().unwrap();
-
-    emit!(cmd.build.start, { "project_type": "js" });
-
-    run_cmd(
-        &"npm",
-        vec!["run", "--prefix", package_dir.to_str().unwrap(), "build"],
+    BuildTool::for_target(target).build(
+        opts.builder_args.clone(),
+        BTreeMap::new(), /* envs */
         opts.verbosity,
     )?;
 

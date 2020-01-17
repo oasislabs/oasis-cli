@@ -5,6 +5,7 @@ use std::{
     fmt,
     path::{Component, Path, PathBuf},
     pin::Pin,
+    str::FromStr,
 };
 
 use oasis_rpc::import::ImportLocation;
@@ -171,133 +172,160 @@ impl Workspace {
                     manifest_path.display()
                 )
             });
-        if manifest_type == "Cargo.toml" {
-            let metadata: CargoMetadata = serde_json::from_slice(
-                &cmd!(
-                    "cargo",
-                    "metadata",
-                    "--manifest-path",
-                    manifest_path,
-                    "--no-deps",
-                    "--format-version=1"
-                )?
-                .stdout,
+        match manifest_type {
+            "Cargo.toml" => Self::load_cargo_projects(manifest_path),
+            "package.json" => Self::load_js_projects(manifest_path),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn load_cargo_projects(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>> {
+        let metadata: CargoMetadata = serde_json::from_slice(
+            &cmd!(
+                "cargo",
+                "metadata",
+                "--manifest-path",
+                manifest_path,
+                "--no-deps",
+                "--format-version=1"
+            )?
+            .stdout,
+        )
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "unable to parse `{}`: {}. Are your Oasis dependencies properly specified?",
+                manifest_path.display(),
+                err
             )
-            .map_err(|err| {
-                anyhow::anyhow!(
-                    "unable to parse `{}`: {}. Are your Oasis dependencies properly specified?",
-                    manifest_path.display(),
-                    err
-                )
-            })?;
+        })?;
 
-            let mut projects = Vec::new();
-            for pkg in metadata.packages {
-                let mut proj = Box::pin(Project {
-                    target_dir: metadata.target_directory.to_path_buf(),
-                    manifest_path: PathBuf::from(pkg.manifest_path),
-                    kind: ProjectKind::Rust,
-                    targets: Vec::new(),
-                });
-                let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-                for target in pkg.targets {
-                    let is_service = target.kind[0] == "bin";
-                    let is_test = target.kind[0] == "test";
-                    let phases = Phases {
-                        build: is_service,
-                        test: is_service /* unit tests */ || is_test,
-                        deploy: false, // Rust deploys are not yet supported
-                        clean: true,   // Rust projects are always cleanable
-                    };
-                    let deps = match &pkg.metadata {
-                        Some(metadata) => {
-                            let unpack_dep = |(name, loc): (&String, &ImportLocation)| {
-                                (
-                                    name.to_string(),
-                                    RefCell::new(Dependency::Unresolved(loc.clone())),
-                                )
-                            };
-                            let oasis_meta = &metadata.oasis;
-                            let mut deps: BTreeMap<_, _> = oasis_meta
-                                .service_dependencies
-                                .get(&target.name)
-                                .map(|target_meta| {
-                                    target_meta.dependencies.iter().map(unpack_dep).collect()
-                                })
-                                .unwrap_or_default();
-                            if is_test {
-                                deps.extend(oasis_meta.dev_dependencies.iter().map(unpack_dep));
-                            }
-                            deps
-                        }
-                        None => BTreeMap::default(),
-                    };
-                    proj.targets.push(Target {
-                        project: proj_ref,
-                        name: target.name.to_string(),
-                        path: target.src_path,
-                        phases,
-                        dependencies: deps,
-                        status: Cell::new(DependencyStatus::Unresolved),
-                    });
-                }
-                projects.push(proj);
-            }
-            Ok(projects)
-        } else if manifest_type == "package.json" {
-            let manifest: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
-
-            if manifest
-                .get("devDependencies")
-                .and_then(|deps| deps.get("lerna"))
-                .map(|lerna| !lerna.is_null())
-                .unwrap_or_default()
-            {
-                return Ok(Vec::new()); // there are subpackages to be found
-            }
-
-            let phases = manifest
-                .get("scripts")
-                .and_then(|s| s.as_object())
-                .map(|s| {
-                    Phases {
-                        build: false, // TS is not (yet) a supported language
-                        test: s.contains_key("test"),
-                        deploy: s.contains_key("deploy"),
-                        clean: s.contains_key("clean"),
-                    }
-                })
-                .unwrap_or_default();
-            if phases == Phases::default() {
-                return Ok(Vec::new()); // it's some non-oasis package
-            }
-
+        let mut projects = Vec::new();
+        for pkg in metadata.packages {
             let mut proj = Box::pin(Project {
-                target_dir: manifest_path.parent().unwrap().to_path_buf(),
-                manifest_path: manifest_path.to_path_buf(),
-                kind: ProjectKind::JavaScript,
+                target_dir: metadata.target_directory.to_path_buf(),
+                manifest_path: PathBuf::from(pkg.manifest_path),
+                kind: ProjectKind::Rust,
                 targets: Vec::new(),
             });
-
             let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-            proj.targets.push(Target {
-                name: manifest
-                    .get("name")
-                    .and_then(|name| name.as_str())
-                    .map(|name| name.to_string())
-                    .unwrap_or_default(),
-                path: proj_ref.manifest_path.parent().unwrap().to_path_buf(),
-                phases,
-                project: proj_ref,
-                dependencies: Default::default(),
-                status: Cell::new(DependencyStatus::Resolved),
-            });
-
-            Ok(vec![proj])
-        } else {
-            Ok(Vec::new())
+            for target in pkg.targets {
+                let is_buildable = target.kind[0] == "bin";
+                let is_testable = target.kind[0] == "test";
+                let phases = Phases {
+                    build: is_buildable,
+                    test: is_buildable /* unit tests */ || is_testable,
+                    deploy: false, // Rust deploys are not yet supported
+                    clean: true,   // Rust projects are always cleanable
+                };
+                let deps = match &pkg.metadata {
+                    Some(metadata) => {
+                        let unpack_dep = |(name, loc): (&String, &ImportLocation)| {
+                            (
+                                name.to_string(),
+                                RefCell::new(Dependency::Unresolved(loc.clone())),
+                            )
+                        };
+                        let oasis_meta = &metadata.oasis;
+                        let mut deps: BTreeMap<_, _> = oasis_meta
+                            .service_dependencies
+                            .get(&target.name)
+                            .map(|target_meta| {
+                                target_meta.dependencies.iter().map(unpack_dep).collect()
+                            })
+                            .unwrap_or_default();
+                        if is_testable {
+                            deps.extend(oasis_meta.dev_dependencies.iter().map(unpack_dep));
+                        }
+                        deps
+                    }
+                    None => BTreeMap::default(),
+                };
+                proj.targets.push(Target {
+                    project: proj_ref,
+                    name: target.name.to_string(),
+                    path: target.src_path,
+                    phases,
+                    dependencies: deps,
+                    status: Cell::new(DependencyStatus::Unresolved),
+                });
+            }
+            projects.push(proj);
         }
+        Ok(projects)
+    }
+
+    fn load_js_projects(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>> {
+        let manifest: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
+
+        if manifest
+            .get("devDependencies")
+            .and_then(|deps| deps.get("lerna"))
+            .map(|lerna| !lerna.is_null())
+            .unwrap_or_default()
+        {
+            return Ok(Vec::new()); // there are subpackages to be found
+        }
+
+        let service_deps = manifest
+            .get("serviceDependencies")
+            .cloned()
+            .and_then(|d| serde_json::from_value::<BTreeMap<String, String>>(d).ok())
+            .unwrap_or_default();
+
+        let mut phases = Phases::default();
+        phases.build = !service_deps.is_empty();
+
+        if let Some(scripts) = manifest.get("scripts").and_then(|s| s.as_object()) {
+            phases.build |= scripts.contains_key("build");
+            phases.test = scripts.contains_key("test");
+            phases.deploy = scripts.contains_key("deploy");
+            phases.clean = scripts.contains_key("clean");
+        }
+        if phases == Phases::default() {
+            return Ok(Vec::new()); // Nothing to be done. Ignore the package.
+        }
+
+        let target_dir = manifest_path.parent().unwrap();
+        let mut proj = Box::pin(Project {
+            target_dir: target_dir.to_path_buf(),
+            manifest_path: manifest_path.to_path_buf(),
+            kind: if target_dir.join("tsconfig.json").is_file() {
+                ProjectKind::TypeScript
+            } else {
+                ProjectKind::JavaScript
+            },
+            targets: Vec::new(),
+        });
+
+        let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+        proj.targets.push(Target {
+            name: manifest
+                .get("name")
+                .and_then(|name| name.as_str())
+                .map(|name| name.to_string())
+                .unwrap_or_default(),
+            path: proj_ref.manifest_path.parent().unwrap().to_path_buf(),
+            phases,
+            project: proj_ref,
+            dependencies: service_deps
+                .into_iter()
+                .map(|(name, loc)| {
+                    let loc = if loc.starts_with("file:") {
+                        ImportLocation::Path(PathBuf::from_str(&loc["file:".len()..]).unwrap())
+                    } else {
+                        ImportLocation::Url(
+                            url::Url::parse(&loc)
+                                .map_err(|e| format_err!("invalid import url `{}`: {}", loc, e))?,
+                        )
+                    };
+                    Ok((name, RefCell::new(Dependency::Unresolved(loc))))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?,
+            status: Cell::new(DependencyStatus::Unresolved),
+        });
+
+        Ok(vec![proj])
     }
 }
 
@@ -460,6 +488,17 @@ pub enum ProjectKind {
     Wasm,
 }
 
+impl ProjectKind {
+    pub fn name(&self) -> &str {
+        match self {
+            ProjectKind::Rust => "rust",
+            ProjectKind::JavaScript => "javascript",
+            ProjectKind::TypeScript => "typescript",
+            ProjectKind::Wasm => "wasm",
+        }
+    }
+}
+
 pub struct Target {
     pub name: String,
     pub project: &'static Project,
@@ -470,19 +509,19 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn is_service(&self) -> bool {
+    pub fn is_buildable(&self) -> bool {
         self.phases.build
     }
 
-    pub fn is_test(&self) -> bool {
+    pub fn is_testable(&self) -> bool {
         self.phases.test
     }
 
-    pub fn is_deploy(&self) -> bool {
+    pub fn is_deployable(&self) -> bool {
         self.phases.deploy
     }
 
-    pub fn is_clean(&self) -> bool {
+    pub fn is_cleanable(&self) -> bool {
         self.phases.clean
     }
 }

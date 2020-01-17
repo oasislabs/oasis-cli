@@ -67,120 +67,182 @@ macro_rules! cmd {
     }}
 }
 
-pub struct Builder<'a> {
-    pub workdir: &'a Path,
-    pub kind: BuilderKind,
+pub struct BuildTool<'a> {
+    project: &'a Project,
+    workdir: &'a Path,
+    kind: BuildToolKind,
 }
 
-impl<'a> Builder<'a> {
+impl<'a> BuildTool<'a> {
     pub fn for_target(target: &'a Target) -> Self {
-        Self {
-            workdir: &target.path,
-            kind: BuilderKind::detect(target.project.kind, &target.path),
-        }
+        Self::for_project(&target.project)
     }
 
     pub fn for_project(project: &'a Project) -> Self {
-        let workdir = project.manifest_path.parent().unwrap();
         Self {
-            workdir,
-            kind: BuilderKind::detect(project.kind, workdir),
+            project,
+            workdir: project.manifest_path.parent().unwrap(), // TODO: fixup for lerna
+            kind: BuildToolKind::detect(project),
         }
+    }
+
+    pub fn build(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("build", args, envs, verbosity)
+    }
+
+    pub fn test(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("test", args, envs, verbosity)
+    }
+
+    pub fn deploy(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("deploy", args, envs, verbosity)
+    }
+
+    pub fn clean(self) -> Result<()> {
+        self.run(
+            "clean",
+            Vec::new(),      /* args */
+            BTreeMap::new(), /* envs */
+            Verbosity::Silent,
+        )
+    }
+
+    fn run(
+        &self,
+        subcommand: &'a str,
+        mut builder_args: Vec<&'a str>,
+        mut envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        let mut args = Vec::new();
+
+        if let BuildToolKind::Cargo = self.kind {
+            args.push(concat!("+", rust_toolchain!()));
+        }
+
+        match self.kind {
+            BuildToolKind::Cargo => {
+                args.push(subcommand);
+                if verbosity < Verbosity::Normal {
+                    args.push("--quiet");
+                } else if verbosity == Verbosity::High {
+                    args.push("--verbose");
+                } else if verbosity == Verbosity::Debug {
+                    args.push("-vvv")
+                }
+                args.push("--manifest-path");
+                args.push(self.project.manifest_path.to_str().unwrap())
+            }
+            BuildToolKind::Npm => {
+                if verbosity < Verbosity::Normal {
+                    args.push("--silent");
+                } else if verbosity >= Verbosity::Verbose {
+                    args.push("--verbose");
+                }
+                args.push("--prefix");
+                args.push(self.workdir.to_str().unwrap());
+                args.push(subcommand);
+            }
+            BuildToolKind::Yarn => {
+                if verbosity < Verbosity::Normal {
+                    args.push("--silent");
+                } else if verbosity >= Verbosity::Verbose {
+                    args.push("--verbose");
+                }
+                args.push("--cwd");
+                args.push(self.workdir.to_str().unwrap());
+                args.push(subcommand);
+            }
+        }
+
+        args.append(&mut builder_args);
+
+        envs.extend(std::env::vars_os());
+
+        run_cmd_internal(self.name(), args, Some(envs), verbosity)
     }
 
     fn name(&self) -> &str {
         match self.kind {
-            BuilderKind::Cargo => "cargo",
-            BuilderKind::Npm => "npm",
-            BuilderKind::Yarn => "yarn",
+            BuildToolKind::Cargo => "cargo",
+            BuildToolKind::Npm => "npm",
+            BuildToolKind::Yarn => "yarn",
         }
     }
 
-    fn insert_default_args(&self, args: &mut Vec<&'a str>) {
-        // insert workdir directive
-        args.push(match self.kind {
-            BuilderKind::Cargo => "--manifest-path",
-            BuilderKind::Npm => "--prefix",
-            BuilderKind::Yarn => "--cwd",
-        });
-        args.push(self.workdir.to_str().unwrap());
-
-        if let BuilderKind::Cargo = self.kind {
-            if !args.get(0).unwrap_or(&"").starts_with('+') {
-                args.insert(0, concat!("+", rust_toolchain!()))
+    fn install_node_modules(&self) -> Result<()> {
+        if !self.workdir.join("node_modules").is_dir() {
+            if let Err(e) = self.run(
+                "install",
+                Vec::new(),      /* args */
+                BTreeMap::new(), /* envs */
+                Verbosity::Silent,
+            ) {
+                emit!(cmd.build.error, {
+                    "cause": format!("{} install", self.name())
+                });
+                return Err(e);
             }
         }
+        Ok(())
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum BuilderKind {
+pub enum BuildToolKind {
     Cargo,
     Npm,
     Yarn,
 }
 
-impl BuilderKind {
-    fn detect(project_kind: ProjectKind, workdir: &Path) -> Self {
-        match project_kind {
+impl BuildToolKind {
+    fn detect(project: &Project) -> Self {
+        match project.kind {
             ProjectKind::Wasm => unreachable!("wasm is not buildable"),
-            ProjectKind::Rust => BuilderKind::Cargo,
+            ProjectKind::Rust => BuildToolKind::Cargo,
             ProjectKind::JavaScript | ProjectKind::TypeScript => {
-                if workdir.join("yarn.lock").is_file() || cmd!("which", "yarn").is_ok() {
-                    BuilderKind::Yarn
+                if project
+                    .manifest_path
+                    .parent()
+                    .unwrap()
+                    .join("yarn.lock")
+                    .is_file()
+                    || cmd!("which", "yarn").is_ok()
+                {
+                    BuildToolKind::Yarn
                 } else {
-                    BuilderKind::Npm
+                    BuildToolKind::Npm
                 }
             }
         }
     }
 }
 
-fn install_node_modules(builder: &Builder) -> Result<()> {
-    if !builder.workdir.join("node_modules").is_dir() {
-        let mut args = vec!["install", "--silent"];
-        builder.insert_default_args(&mut args);
-        if let Err(e) = run_cmd_internal(builder.name(), args, None, Verbosity::Silent) {
-            emit!(cmd.build.error, {
-                "cause": format!("{} install", builder.name())
-            });
-            return Err(e);
-        }
-    }
-    Ok(())
-}
-
-pub fn run_builder<'a>(
-    builder: Builder<'a>,
-    mut args: Vec<&'a str>,
-    extra_envs: Option<BTreeMap<OsString, OsString>>,
-    verbosity: Verbosity,
-) -> Result<()> {
-    builder.insert_default_args(&mut args);
-    if let BuilderKind::Npm | BuilderKind::Yarn = builder.kind {
-        install_node_modules(&builder)?;
-    }
-    let envs = match extra_envs {
-        Some(mut extra_envs) => {
-            extra_envs.extend(std::env::vars_os());
-            extra_envs
-        }
-        None => std::env::vars_os().collect::<BTreeMap<_, _>>(),
-    };
-    run_cmd_internal(builder.name(), args, Some(envs), verbosity)
-}
-
 pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
     run_cmd_internal(name, args, None /* envs */, verbosity)
-}
-
-pub fn run_cmd_with_env(
-    name: &str,
-    args: Vec<&str>,
-    envs: BTreeMap<OsString, OsString>,
-    verbosity: Verbosity,
-) -> Result<()> {
-    run_cmd_internal(name, args, Some(envs), verbosity)
 }
 
 fn run_cmd_internal(

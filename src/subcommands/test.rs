@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, ffi::OsString};
 
 use crate::{
-    command::{run_builder, Builder, Verbosity},
+    command::{BuildTool, Verbosity},
     config::Config,
     emit,
     errors::Result,
@@ -53,7 +53,7 @@ impl<'a> super::ExecSubcommand for TestOptions<'a> {
 }
 
 pub fn test(targets: &[&Target], opts: TestOptions) -> Result<()> {
-    for target in targets.iter().filter(|t| t.is_test()) {
+    for target in targets.iter().filter(|t| t.is_testable()) {
         let proj = &target.project;
         let print_status = || {
             if opts.verbosity > Verbosity::Quiet {
@@ -69,13 +69,9 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<()> {
                 print_status();
                 test_rust(target, &opts)?;
             }
-            ProjectKind::JavaScript => {
+            ProjectKind::JavaScript | ProjectKind::TypeScript => {
                 print_status();
                 test_javascript(target, &opts)?;
-            }
-            ProjectKind::TypeScript => {
-                print_status();
-                test_typescript(target, &opts)?;
             }
             ProjectKind::Wasm => {}
         }
@@ -84,26 +80,37 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<()> {
 }
 
 fn test_rust(target: &Target, opts: &TestOptions) -> Result<()> {
-    let cargo_args = get_cargo_args(target, &opts)?;
+    let mut args = Vec::new();
 
-    let mut cargo_envs: BTreeMap<_, _> = std::env::vars_os().collect();
-    cargo_envs.insert(
+    if opts.release {
+        args.push("--release");
+    }
+
+    if target.is_buildable() {
+        args.push("--bin");
+    } else if target.is_testable() {
+        args.push("--test");
+    }
+    args.push(&target.name);
+
+    if !opts.tester_args.is_empty() {
+        args.push("--");
+        args.extend(opts.tester_args.iter());
+    }
+
+    let mut envs: BTreeMap<_, _> = std::env::vars_os().collect();
+    envs.insert(
         OsString::from("RUSTC_WRAPPER"),
         OsString::from("oasis-build"),
     );
 
     emit!(cmd.test.start, {
-        "project_type": "rust",
+        "project_type": target.project.kind.name(),
         "release": opts.release,
         "rustflags": std::env::var("RUSTFLAGS").ok(),
     });
 
-    if let Err(e) = run_builder(
-        Builder::for_target(target),
-        cargo_args,
-        Some(cargo_envs),
-        opts.verbosity,
-    ) {
+    if let Err(e) = BuildTool::for_target(target).test(args, envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     };
@@ -112,73 +119,28 @@ fn test_rust(target: &Target, opts: &TestOptions) -> Result<()> {
     Ok(())
 }
 
-fn get_cargo_args<'a>(target: &'a Target, opts: &'a TestOptions) -> Result<Vec<&'a str>> {
-    let mut cargo_args = vec!["test"];
-    if opts.verbosity < Verbosity::Normal {
-        cargo_args.push("--quiet");
-    } else if opts.verbosity == Verbosity::High {
-        cargo_args.push("--verbose");
-    } else if opts.verbosity == Verbosity::Debug {
-        cargo_args.push("-vvv")
-    }
-
-    if opts.release {
-        cargo_args.push("--release");
-    }
-
-    if target.is_service() {
-        cargo_args.push("--bin");
-    } else if target.is_test() {
-        cargo_args.push("--test");
-    }
-    cargo_args.push(&target.name);
-
-    cargo_args.push("--manifest-path");
-    cargo_args.push(target.project.manifest_path.as_os_str().to_str().unwrap());
-
-    if !opts.tester_args.is_empty() {
-        cargo_args.push("--");
-        cargo_args.extend(opts.tester_args.iter());
-    }
-
-    Ok(cargo_args)
-}
-
 fn test_javascript(target: &Target, opts: &TestOptions) -> Result<()> {
-    let package_dir = target.project.manifest_path.parent().unwrap();
-
     emit!(cmd.test.start, {
-        "project_type": "js",
+        "project_type": target.project.kind.name(),
         "tester_args": opts.tester_args,
     });
 
-    let mut npm_args = vec!["test", "--prefix", package_dir.to_str().unwrap(), "--"];
-    if opts.verbosity < Verbosity::Normal {
-        npm_args.push("--silent");
-    } else if opts.verbosity >= Verbosity::Verbose {
-        npm_args.push("--verbose");
+    let mut args = Vec::new();
+    if !opts.tester_args.is_empty() {
+        args.push("--");
+        args.extend(opts.tester_args.iter());
     }
-    npm_args.extend(opts.tester_args.iter());
 
-    let mut npm_envs = BTreeMap::new();
-    npm_envs.insert(
+    let mut envs = BTreeMap::new();
+    envs.insert(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_builder(
-        Builder::for_target(target),
-        npm_args,
-        Some(npm_envs),
-        opts.verbosity,
-    ) {
+    if let Err(e) = BuildTool::for_target(target).test(args, envs, opts.verbosity) {
         emit!(cmd.test.error);
         return Err(e);
     }
 
     emit!(cmd.test.done);
     Ok(())
-}
-
-fn test_typescript(target: &Target, opts: &TestOptions) -> Result<()> {
-    unimplemented!()
 }

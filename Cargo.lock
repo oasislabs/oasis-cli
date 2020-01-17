@@ -838,9 +838,10 @@ dependencies = [
  "thiserror 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml_edit 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "url 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "walkdir 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "walrus 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "walrus 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "xml-rs 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1697,20 +1698,20 @@ dependencies = [
 
 [[package]]
 name = "walrus"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "anyhow 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "id-arena 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "leb128 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "walrus-macro 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmparser 0.39.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "walrus-macro 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmparser 0.42.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "walrus-macro"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "heck 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1732,11 +1733,6 @@ dependencies = [
 [[package]]
 name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "wasmparser"
-version = "0.39.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -2003,11 +1999,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum version_check 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "078775d0255232fb988e6fccf26ddc9d1ac274299aaedcedce21c6f72cc533ce"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 "checksum walkdir 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
-"checksum walrus 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "85ce93ab0c27412ba41d509f2410fa575ecbfdb4a6aba0e02e79e12c09745485"
-"checksum walrus-macro 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8757b0da38353d55a9687f4dee68a8f441f980dd36e16ab07d6e6c673f505f76"
+"checksum walrus 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4d96e9ec3f81fdb3210b12b2b1e9e39369c8050a3a28e692e5247e3ab5196410"
+"checksum walrus-macro 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2bc16925d405153a91e01cdac2a5549aa25ca9148b5176e25e601f6536344d94"
 "checksum want 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b6395efa4784b027708f7451087e647ec73cc74f5d9bc2e418404248d679a230"
 "checksum wasi 0.9.0+wasi-snapshot-preview1 (registry+https://github.com/rust-lang/crates.io-index)" = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
-"checksum wasmparser 0.39.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c702914acda5feeeffbc29e4d953e5b9ce79d8b98da4dbf18a77086e116c5470"
 "checksum wasmparser 0.42.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1527c84a5bd585215f29c06b0e2a5274e478ad4dfc970d26ffad66fdc6cb311d"
 "checksum winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
 "checksum winapi 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)" = "8093091eeb260906a183e6ae1abdba2ef5ef2257a21801128899c3fc699229c6"

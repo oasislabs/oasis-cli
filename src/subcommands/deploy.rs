@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, ffi::OsString, path::Path};
+use std::{collections::BTreeMap, ffi::OsString};
 
 use colored::*;
 
 use crate::{
-    command::{run_cmd_with_env, Verbosity},
+    command::{BuildTool, Verbosity},
     config::{Config, DEFAULT_GATEWAY_URL},
     emit,
     errors::{ProfileError, ProfileErrorKind, Result},
@@ -94,10 +94,10 @@ impl<'a> super::ExecSubcommand for DeployOptions<'a> {
 
 pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<()> {
     let mut found_deployable = false;
-    for target in targets.iter().filter(|t| t.is_deploy()) {
+    for target in targets.iter().filter(|t| t.is_deployable()) {
         let proj = &target.project;
         match &proj.kind {
-            ProjectKind::JavaScript => {
+            ProjectKind::JavaScript | ProjectKind::TypeScript => {
                 if opts.verbosity > Verbosity::Quiet {
                     print_status_in(
                         Status::Deploying,
@@ -106,7 +106,7 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<()> {
                     );
                 }
                 found_deployable = true;
-                deploy_js(&proj.manifest_path, &opts)?
+                deploy_javascript(target, &opts)?
             }
             ProjectKind::Rust => {}
             _ => {}
@@ -118,35 +118,24 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<()> {
     Ok(())
 }
 
-fn deploy_js(manifest_path: &Path, opts: &DeployOptions) -> Result<()> {
-    let package_dir = manifest_path.parent().unwrap();
-
+fn deploy_javascript(target: &Target, opts: &DeployOptions) -> Result<()> {
     emit!(cmd.deploy.start, {
         "project_type": "js",
         "deployer_args": opts.deployer_args,
     });
 
-    let mut npm_args = vec![
-        "run",
-        "deploy",
-        "--if-present",
-        "--prefix",
-        package_dir.to_str().unwrap(),
-        "--",
-    ];
-    if opts.verbosity < Verbosity::Normal {
-        npm_args.push("--silent");
-    } else if opts.verbosity >= Verbosity::Verbose {
-        npm_args.push("--verbose");
+    let mut args = Vec::new();
+    if !opts.deployer_args.is_empty() {
+        args.push("--");
+        args.extend(opts.deployer_args.iter());
     }
-    npm_args.extend(opts.deployer_args.iter());
 
-    let mut npm_envs: BTreeMap<_, _> = std::env::vars_os().collect();
-    npm_envs.insert(
+    let mut envs = BTreeMap::new();
+    envs.insert(
         OsString::from("OASIS_PROFILE"),
         OsString::from(&opts.profile),
     );
-    if let Err(e) = run_cmd_with_env("npm", npm_args, npm_envs, opts.verbosity) {
+    if let Err(e) = BuildTool::for_target(target).deploy(args, envs, opts.verbosity) {
         emit!(cmd.deploy.error);
         return Err(e);
     }

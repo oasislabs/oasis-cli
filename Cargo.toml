@@ -39,6 +39,7 @@ tar = "0.4"
 thiserror = "1.0"
 toml = "0.5"
 toml_edit = "0.1"
+url = "2.1"
 uuid = { version = "0.8", features = ["v4"] }
 walkdir = "2.2"
 walrus = "0.14"
