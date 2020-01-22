@@ -5,7 +5,6 @@ use std::{
     fmt,
     path::{Component, Path, PathBuf},
     pin::Pin,
-    str::FromStr,
 };
 
 use oasis_rpc::import::ImportLocation;
@@ -174,7 +173,7 @@ impl Workspace {
             });
         match manifest_type {
             "Cargo.toml" => Self::load_cargo_projects(manifest_path),
-            "package.json" => Self::load_js_projects(manifest_path),
+            "package.json" => Self::load_javascript_projects(manifest_path),
             _ => Ok(Vec::new()),
         }
     }
@@ -254,7 +253,7 @@ impl Workspace {
         Ok(projects)
     }
 
-    fn load_js_projects(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>> {
+    fn load_javascript_projects(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>> {
         let manifest: serde_json::Map<String, serde_json::Value> =
             serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
 
@@ -299,20 +298,23 @@ impl Workspace {
         });
 
         let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
+        let manifest_dir = proj_ref.manifest_path.parent().unwrap().to_path_buf();
         proj.targets.push(Target {
             name: manifest
                 .get("name")
                 .and_then(|name| name.as_str())
                 .map(|name| name.to_string())
                 .unwrap_or_default(),
-            path: proj_ref.manifest_path.parent().unwrap().to_path_buf(),
             phases,
             project: proj_ref,
             dependencies: service_deps
                 .into_iter()
                 .map(|(name, loc)| {
                     let loc = if loc.starts_with("file:") {
-                        ImportLocation::Path(PathBuf::from_str(&loc["file:".len()..]).unwrap())
+                        ImportLocation::Path(
+                            canonicalize_path(&manifest_dir, Path::new(&loc["file:".len()..]))
+                                .to_path_buf(),
+                        )
                     } else {
                         ImportLocation::Url(
                             url::Url::parse(&loc)
@@ -323,6 +325,7 @@ impl Workspace {
                 })
                 .collect::<Result<BTreeMap<_, _>>>()?,
             status: Cell::new(DependencyStatus::Unresolved),
+            path: manifest_dir,
         });
 
         Ok(vec![proj])
@@ -355,13 +358,13 @@ impl<'a, 't> Targets<'a, 't> {
                     Cow::Owned(workspace.root.join(&target_str[2..])),
                     *target_str,
                 );
-            } else if target_str.contains('/') || target_path.exists() {
-                search_paths.insert(canonicalize_path(&cwd, target_path), *target_str);
-            } else if target_str
+            } else if target_str.starts_with("@") /* node module */ || target_str
                 .chars()
                 .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_')
             {
                 service_names.insert(*target_str);
+            } else if (target_str.contains('/') && target_path.exists()) || target_path.exists() {
+                search_paths.insert(canonicalize_path(&cwd, target_path), *target_str);
             } else {
                 warn!(
                     "`{}` does not refer to a service nor a directory containing services",
@@ -433,8 +436,9 @@ impl<'a, 't> Targets<'a, 't> {
                 warn!("the path `{}` exists outside of this workspace", target_str);
                 continue;
             }
+            dbg!("here");
             let mut found_proj = false;
-            for proj in self.workspace.projects().iter() {
+            for proj in dbg!(self.workspace.projects()).iter() {
                 if proj.manifest_path.starts_with(path) {
                     found_proj = true;
                     targets.extend(proj.targets.iter());

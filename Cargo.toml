@@ -44,6 +44,9 @@ uuid = { version = "0.8", features = ["v4"] }
 walkdir = "2.2"
 walrus = "0.14"
 xml-rs = "0.8"
+# for codegen
+proc-macro2 = "1.0"
+quote = "1.0"
 
 [build-dependencies]
 anyhow = "1.0"
