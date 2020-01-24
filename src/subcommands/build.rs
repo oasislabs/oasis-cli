@@ -198,7 +198,8 @@ fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
     Ok(())
 }
 
-fn build_typescript_client(target: &Target, opts: &BuildOptions) -> Result<()> {
+fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> {
+    use crate::gen::typescript as ts;
     let iface = crate::subcommands::ifextract::extract_interface(
         oasis_rpc::import::ImportLocation::Path(
             target
@@ -209,6 +210,6 @@ fn build_typescript_client(target: &Target, opts: &BuildOptions) -> Result<()> {
     )?
     .pop()
     .unwrap();
-    crate::gen::typescript::generate(&iface);
+    println!("{}", ts::generate(&iface));
     Ok(())
 }
