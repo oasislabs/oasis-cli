@@ -181,7 +181,9 @@ impl<'a> BuildTool<'a> {
 
         args.append(&mut builder_args);
 
-        envs.extend(std::env::vars_os());
+        for (k, v) in std::env::vars_os() {
+            envs.entry(k).or_insert(v);
+        }
 
         run_cmd_internal(self.name(), args, Some(envs), verbosity)
     }

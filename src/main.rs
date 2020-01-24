@@ -1,4 +1,4 @@
-#![feature(bind_by_move_pattern_guards, concat_idents)]
+#![feature(bind_by_move_pattern_guards, cell_update, concat_idents, trusted_len)]
 
 #[macro_use]
 extern crate anyhow;

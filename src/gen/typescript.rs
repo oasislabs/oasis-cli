@@ -152,11 +152,7 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef], schema: &mut Schema) -> 
                         }
                     }
                 }
-                TypeDef::Event { name, fields } => {
-                    quote! {
-                        the
-                    }
-                }
+                TypeDef::Event { name, fields } => unimplemented!(),
             }
         })
         .collect()

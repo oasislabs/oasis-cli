@@ -9,7 +9,7 @@ use crate::{
     emit,
     errors::Result,
     utils::{print_status, print_status_in, Status},
-    workspace::{ProjectKind, Target, Workspace},
+    workspace::{Artifacts, ProjectKind, Target, Workspace},
 };
 
 pub struct BuildOptions<'a> {
@@ -66,13 +66,21 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
             );
         }
 
-        match &proj.kind {
-            ProjectKind::Rust => build_rust(target, &opts)?,
-            ProjectKind::JavaScript | ProjectKind::TypeScript => build_javascript(&target, &opts)?,
-            ProjectKind::Wasm => {
-                let out_file = Path::new(&target.name).with_extension("wasm");
-                prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
+        if target.yields_artifact(
+            Artifacts::SERVICE | Artifacts::RUST_CLIENT, /* client codegen is in oasis-build */
+        ) {
+            match &proj.kind {
+                ProjectKind::Rust => build_rust(target, &opts)?,
+                ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                    build_javascript(&target, &opts)?
+                }
+                ProjectKind::Wasm => {
+                    let out_file = Path::new(&target.name).with_extension("wasm");
+                    prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
+                }
             }
+        } else if target.yields_artifact(Artifacts::TYPESCRIPT_CLIENT) {
+            build_typescript_client(&target, &opts)?;
         }
     }
     Ok(())
@@ -189,5 +197,9 @@ fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
     )?;
 
     emit!(cmd.build.done);
+    Ok(())
+}
+
+fn build_typescript_client(target: &Target, opts: &BuildOptions) -> Result<()> {
     Ok(())
 }
