@@ -1,6 +1,13 @@
-use oasis_rpc::import::{ImportLocation, ImportedService, Importer};
+use std::path::Path;
 
-pub fn ifextract(import_location: &str, out_dir: &std::path::Path) -> crate::errors::Result<()> {
+use oasis_rpc::{
+    import::{ImportLocation, ImportedService, Importer},
+    Interface,
+};
+
+use crate::errors::Result;
+
+pub fn ifextract(import_location: &str, out_dir: &std::path::Path) -> Result<()> {
     crate::emit!(cmd.ifextract);
     let import_location = if let Ok(url) = import_location.parse() {
         ImportLocation::Url(url)
@@ -24,4 +31,15 @@ pub fn ifextract(import_location: &str, out_dir: &std::path::Path) -> crate::err
         }
     }
     Ok(())
+}
+
+pub fn extract_interface(
+    import_loc: ImportLocation,
+    import_base_path: &Path,
+) -> Result<Vec<Interface>> {
+    Ok(Importer::for_location(import_loc, import_base_path)?
+        .import_all()?
+        .into_iter()
+        .map(|imported_service| imported_service.interface)
+        .collect())
 }

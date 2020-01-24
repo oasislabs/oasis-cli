@@ -135,20 +135,6 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef], schema: &mut Schema) -> 
                                     }
                                 )*
                             }
-                            // export type #type_ident = #(#type_ident.#variant_idents)|*;
-                        //     export class #type_ident {
-                        //         public kind: #kind_ident;
-                        //         public VARIANTS: string[];
-                        //
-                        //         #(public #variant_names: #variant_user_tys)
-                        //         public constructor(
-                        //             readonly kind: #kind_ident,
-                        //             body: #({ #variant_names: #variant_user_tys })|*
-                        //         ) {
-                        //             this[#type_ident.]
-                        //                 #(this.#field_names = fields.#field_names;)*
-                        //         }
-                        //     }
                         }
                     }
                 }

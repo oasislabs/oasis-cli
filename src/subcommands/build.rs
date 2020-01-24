@@ -201,5 +201,17 @@ fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
 }
 
 fn build_typescript_client(target: &Target, opts: &BuildOptions) -> Result<()> {
+    eprintln!("building ts client");
+    let iface = crate::subcommands::ifextract::extract_interface(
+        oasis_rpc::import::ImportLocation::Path(
+            target
+                .wasm_path()
+                .expect("ts client target must yield a service"),
+        ),
+        target.manifest_dir(),
+    )?
+    .pop()
+    .unwrap();
+    crate::gen::typescript::generate(&iface);
     Ok(())
 }

@@ -115,10 +115,11 @@ impl Workspace {
                     continue;
                 }
                 visited_deps.push(target);
-                let target_root = target.project.manifest_path.parent().unwrap();
+                let import_base_path = target.manifest_dir();
                 let target_name = target.name.to_string();
                 for (dep_name, import_loc) in target.dependencies.iter() {
-                    let dep_target = self.lookup_target(&dep_name, &import_loc, target_root)?;
+                    let dep_target =
+                        self.lookup_target(&dep_name, &import_loc, import_base_path)?;
                     if unresolved_deps.iter().any(|v| v.name == dep_target.name) {
                         return Err(WorkspaceError::CircularDependency(
                             target_name,
@@ -558,6 +559,25 @@ impl Target {
 
     pub fn yields_artifact(&self, artifact: Artifacts) -> bool {
         self.required_artifacts.get().contains(artifact)
+    }
+
+    pub fn manifest_dir(&self) -> &Path {
+        self.project.manifest_path.parent().unwrap()
+    }
+
+    pub fn wasm_path(&self) -> Option<PathBuf> {
+        use heck::SnakeCase as _;
+        if self.yields_artifact(Artifacts::SERVICE) {
+            Some(match self.project.kind {
+                ProjectKind::Rust => self
+                    .project
+                    .target_dir
+                    .join(format!("service/{}.wasm", self.name.to_snake_case())),
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        }
     }
 }
 
