@@ -94,7 +94,7 @@ impl Workspace {
     ) -> Result<Vec<&'a Target>> {
         let mut build_plan: Vec<&Target> = Vec::new();
         for top_target in top_targets {
-            // ^ DFS is conducted for every top-level target so to mark the build targets
+            // ^ DFS is conducted for every top-level target so to mark the dependencies
             //   with the artifacts required by the dep.
             let mut unresolved_deps: Vec<&Target> = Vec::new();
             let mut visited_deps: Vec<&Target> = Vec::new();
@@ -105,8 +105,8 @@ impl Workspace {
                     match build_plan.iter().find(|t| t.name == target.name) {
                         Some(target) => {
                             target
-                                .required_artifacts
-                                .update(|r| r | top_target.required_artifacts.get());
+                                .artifacts
+                                .update(|r| r | top_target.required_artifacts());
                         }
                         None => {
                             build_plan.push(target);
@@ -128,8 +128,8 @@ impl Workspace {
                         .into());
                     }
                     dep_target
-                        .required_artifacts
-                        .update(|r| r | top_target.required_artifacts.get());
+                        .artifacts
+                        .update(|r| r | top_target.required_artifacts());
                     unresolved_deps.push(dep_target);
                 }
             }
@@ -261,7 +261,8 @@ impl Workspace {
                     path: target.src_path,
                     phases,
                     dependencies: deps,
-                    required_artifacts: Cell::new(Artifacts::SERVICE),
+                    artifacts: Cell::new(Artifacts::SERVICE),
+                    //^ TODO: move rust codegen and service detection to cli
                 });
             }
             projects.push(proj);
@@ -350,7 +351,8 @@ impl Workspace {
                 })
                 .collect::<Result<BTreeMap<_, _>>>()?,
             path: manifest_dir,
-            required_artifacts: Cell::new(Artifacts::TYPESCRIPT_CLIENT),
+            artifacts: Cell::new(Artifacts::APP),
+            //^ TODO: typescript services
         });
 
         Ok(vec![proj])
@@ -361,7 +363,7 @@ struct TopTargets<'a, 't> {
     workspace: &'a Workspace,
 
     /// Names of targets provided by the user.
-    service_names: BTreeSet<&'t str>,
+    target_names: BTreeSet<&'t str>,
 
     /// Search paths for targets, as specified by the user.
     search_paths: BTreeMap<Cow<'t, Path>, &'t str>, // abs path -> user path
@@ -374,7 +376,7 @@ impl<'a, 't> TopTargets<'a, 't> {
     fn new(workspace: &'a Workspace, target_strs: &'t [&'t str]) -> Self {
         let cwd = std::env::current_dir().unwrap(); // Checked during initialization.
 
-        let mut service_names = BTreeSet::new();
+        let mut target_names = BTreeSet::new();
         let mut search_paths = BTreeMap::new();
         let mut wasm_paths = BTreeSet::new();
 
@@ -393,7 +395,7 @@ impl<'a, 't> TopTargets<'a, 't> {
                 .chars()
                 .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_')
             {
-                service_names.insert(*target_str);
+                target_names.insert(*target_str);
             } else if (target_str.contains('/') && target_path.exists()) || target_path.exists() {
                 search_paths.insert(canonicalize_path(&cwd, target_path), *target_str);
             } else {
@@ -406,7 +408,7 @@ impl<'a, 't> TopTargets<'a, 't> {
 
         Self {
             workspace,
-            service_names,
+            target_names,
             search_paths,
             wasm_paths,
         }
@@ -416,7 +418,7 @@ impl<'a, 't> TopTargets<'a, 't> {
         let mut targets = Vec::new();
         self.collect_wasm_targets(&mut targets);
         self.collect_path_targets(&mut targets);
-        self.collect_service_targets(&mut targets)?;
+        self.collect_named_targets(&mut targets)?;
         Ok(targets)
     }
 
@@ -439,7 +441,7 @@ impl<'a, 't> TopTargets<'a, 't> {
                 phases: Phases::BUILD,
                 dependencies: BTreeMap::new(),
                 project: proj_ref,
-                required_artifacts: Cell::new(Artifacts::empty()),
+                artifacts: Cell::new(Artifacts::empty()),
             });
             unsafe { &mut *self.workspace.projects.get() }.push(proj); // @see `struct Workspace`
             targets.push(
@@ -484,19 +486,19 @@ impl<'a, 't> TopTargets<'a, 't> {
         }
     }
 
-    fn collect_service_targets(&self, targets: &mut Vec<&'a Target>) -> Result<()> {
-        for service_name in self.service_names.iter() {
+    fn collect_named_targets(&self, targets: &mut Vec<&'a Target>) -> Result<()> {
+        for target_name in self.target_names.iter() {
             let mut found_service = false;
             for p in self.workspace.projects().iter() {
                 for target in p.targets.iter() {
-                    if target.name == *service_name {
+                    if target.name == *target_name {
                         found_service = true;
                         targets.push(target);
                     }
                 }
             }
             if !found_service {
-                warn!("no service named `{}` found in the workspace", service_name);
+                warn!("no target named `{}` found in the workspace", target_name);
             }
         }
         Ok(())
@@ -537,7 +539,7 @@ pub struct Target {
     /// The development phases for which this target is relevant (e.g., build, deploy).
     phases: Phases,
     dependencies: BTreeMap<String, ImportLocation>,
-    required_artifacts: Cell<Artifacts>,
+    artifacts: Cell<Artifacts>,
 }
 
 impl Target {
@@ -558,7 +560,7 @@ impl Target {
     }
 
     pub fn yields_artifact(&self, artifact: Artifacts) -> bool {
-        self.required_artifacts.get().contains(artifact)
+        self.artifacts.get().contains(artifact)
     }
 
     pub fn manifest_dir(&self) -> &Path {
@@ -579,6 +581,14 @@ impl Target {
             None
         }
     }
+
+    pub fn required_artifacts(&self) -> Artifacts {
+        match self.project.kind {
+            ProjectKind::Rust => Artifacts::RUST_CLIENT,
+            ProjectKind::JavaScript | ProjectKind::TypeScript => Artifacts::TYPESCRIPT_CLIENT,
+            ProjectKind::Wasm => unimplemented!("cannot yet link wasm modules"),
+        }
+    }
 }
 
 impl fmt::Debug for Target {
@@ -587,7 +597,7 @@ impl fmt::Debug for Target {
             .field("name", &self.name)
             .field("project", &self.project.manifest_path)
             .field("dependencies", &self.dependencies)
-            .field("required_artifacts", &self.required_artifacts)
+            .field("artifacts", &self.artifacts)
             .finish()
     }
 }
@@ -604,8 +614,9 @@ bitflags! {
 bitflags! {
     pub struct Artifacts: u8 {
         const SERVICE           = 0b0000_0001;
-        const RUST_CLIENT       = 0b0000_0010;
-        const TYPESCRIPT_CLIENT = 0b0000_0100;
+        const APP               = 0b0000_0010;
+        const RUST_CLIENT       = 0b0000_0100;
+        const TYPESCRIPT_CLIENT = 0b0000_1000;
     }
 }
 

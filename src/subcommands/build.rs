@@ -66,10 +66,8 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
             );
         }
 
-        if target.yields_artifact(
-            Artifacts::SERVICE | Artifacts::RUST_CLIENT, /* client codegen is in oasis-build */
-        ) {
-            match &proj.kind {
+        if target.yields_artifact(Artifacts::SERVICE | Artifacts::RUST_CLIENT | Artifacts::APP) {
+            match proj.kind {
                 ProjectKind::Rust => build_rust(target, &opts)?,
                 ProjectKind::JavaScript | ProjectKind::TypeScript => {
                     build_javascript(&target, &opts)?
@@ -201,12 +199,11 @@ fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
 }
 
 fn build_typescript_client(target: &Target, opts: &BuildOptions) -> Result<()> {
-    eprintln!("building ts client");
     let iface = crate::subcommands::ifextract::extract_interface(
         oasis_rpc::import::ImportLocation::Path(
             target
                 .wasm_path()
-                .expect("ts client target must yield a service"),
+                .expect("service target must yield a wasm artifact"),
         ),
         target.manifest_dir(),
     )?
