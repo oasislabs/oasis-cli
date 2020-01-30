@@ -41,14 +41,14 @@ pub fn generate(iface: &Interface) -> TokenStream {
         import Gateway from "@oasislabs/gateway";
         import { RpcOptions } from "@oasislabs/service";
         import {
-            AbiEncodable,
+            OasisAbiEncodable,
             Address,
             Balance,
-            Decoder as OasisAbiEncoder,
-            Encoder as OasisAbiDecoder,
-            abiDecode,
-            abiEncode,
-            decodeHex
+            Decoder as OasisAbiDecoder,
+            Encoder as OasisAbiEncoder,
+            Schema as OasisAbiSchema,
+            abiDecode as oasisAbiDecode,
+            abiEncode as oasisAbiEncode,
         } from "oasis-std";
 
         #(#imports)*
@@ -75,58 +75,55 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                 TypeDef::Struct { name, fields } => generate_struct_class(name, fields, quote!()),
                 TypeDef::Enum { name, variants } => {
                     let type_ident = format_ts_ident!(@class, name);
+
                     let is_tagged_union = variants.iter().any(|v| v.fields.is_some());
                     if !is_tagged_union {
                         let field_idents =
                             variants.iter().map(|v| format_ts_ident!(@class, v.name));
-                        quote! {
+                        return quote! {
                             export enum #type_ident {
                                 #(#field_idents),*
                             }
-                        }
-                    } else {
-                        let (variant_classes, variant_names): (Vec<_>, Vec<_>) = variants
-                            .iter()
-                            .map(|variant| {
-                                let variant_name =
-                                    format_ts_ident!(@class, variant.name).to_string();
-                                let variant_class = match &variant.fields {
-                                    Some(oasis_rpc::EnumFields::Named(fields)) => {
-                                        let is_tuple = fields
-                                            .iter()
-                                            .enumerate()
-                                            .all(|(i, field)| field.name == i.to_string());
-                                        if !is_tuple {
-                                            generate_struct_class(&variant.name, fields, quote!())
-                                        } else {
-                                            generate_tuple_class(
-                                                &variant.name,
-                                                &fields
-                                                    .iter()
-                                                    .map(|f| f.ty.clone())
-                                                    .collect::<Vec<_>>(),
-                                            )
-                                        }
-                                    }
-                                    Some(oasis_rpc::EnumFields::Tuple(tys)) => {
-                                        generate_tuple_class(&variant.name, &tys)
-                                    }
-                                    None => generate_struct_class(
-                                        &variant.name,
-                                        &[],
-                                        quote!(public static kind = #variant_name),
-                                    ),
-                                };
-                                (variant_class, variant_name)
-                            })
-                            .unzip();
-                        quote! {
-                            module #type_ident {
-                                const VARIANTS: string[] = [ #(#variant_names),* ];
+                        };
+                    }
 
-                                #(#variant_classes)*
+                    let variant_idents: Vec<_> = variants
+                        .iter()
+                        .map(|v| format_ts_ident!(@class, v.name))
+                        .collect();
+                    let variant_classes = variants.iter().map(|variant| match &variant.fields {
+                        Some(oasis_rpc::EnumFields::Named(fields)) => {
+                            let is_tuple = fields
+                                .iter()
+                                .enumerate()
+                                .all(|(i, field)| field.name == i.to_string());
+                            if !is_tuple {
+                                generate_struct_class(&variant.name, fields, quote!())
+                            } else {
+                                generate_tuple_class(
+                                    &variant.name,
+                                    &fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>(),
+                                )
                             }
                         }
+                        Some(oasis_rpc::EnumFields::Tuple(tys)) => {
+                            generate_tuple_class(&variant.name, &tys)
+                        }
+                        None => generate_tuple_class(&variant.name, &[] /* fields */),
+                    });
+
+                    quote! {
+                        module #type_ident {
+                            #(#variant_classes)*
+
+                            export function abiDecode(decoder: OasisAbiDecoder): #type_ident {
+                                const variantId = decoder.readU32();
+                                return (#type_ident as any).VARIANTS[variantId].oasisAbiDecode(decoder);
+                            }
+
+                            const VARIANTS: Function[] = [ #(#variant_idents),* ];
+                        }
+                        export type #type_ident = #(#type_ident.#variant_idents)|*;
                     }
                 }
                 TypeDef::Event {
@@ -178,7 +175,7 @@ fn generate_struct_class<'a>(
         .collect();
 
     quote! {
-        export class #class_ident implements AbiEncodable {
+        export class #class_ident implements OasisAbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(fields: { #(#field_idents: #field_tys),* }) {
@@ -186,12 +183,12 @@ fn generate_struct_class<'a>(
             }
 
             public abiEncode(encoder: OasisAbiEncoder) {
-                #(abiEncode(#field_schema_tys, this.#field_idents, encoder);)*
+                #(oasisAbiEncode(#field_schema_tys as OasisAbiSchema, this.#field_idents, encoder);)*
             }
 
             public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
                 return new #class_ident({
-                    #(#field_idents: abiDecode(#field_schema_tys, decoder)),*
+                    #(#field_idents: oasisAbiDecode(#field_schema_tys as OasisAbiSchema, decoder)),*
                 });
             }
 
@@ -214,7 +211,7 @@ fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStrea
     let field_schema_tys: Vec<_> = tys.iter().map(quote_schema_ty).collect();
 
     quote! {
-        export class #class_ident implements AbiEncodable {
+        export class #class_ident implements OasisAbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(#(#arg_idents: #field_tys),*) {
@@ -222,16 +219,14 @@ fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStrea
             }
 
             public abiEncode(encoder: OasisAbiEncoder) {
-                #(abiEncode(#field_schema_tys, this[#field_idents], encoder));*
+                #(oasisAbiEncode(#field_schema_tys as OasisAbiSchema, this[#field_idents], encoder));*
             }
 
             public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
                 return new #class_ident(
-                    #(abiDecode(#field_schema_tys, decoder)),*
+                    #(oasisAbiDecode(#field_schema_tys as OasisAbiSchema, decoder)),*
                 );
             }
-
-            public abiEncode
         }
     }
 }
@@ -263,7 +258,7 @@ fn generate_rpc_functions<'a>(
                     Tuple(tys) | Result(box Tuple(tys), _) if tys.is_empty() => None,
                     _ => {
                         let quot_schema_ty = quote_schema_ty(output);
-                        Some(quote!(return abiDecode(#quot_schema_ty, decodeHex(res.output));))
+                        Some(quote!(return oasisAbiDecode(#quot_schema_ty as OasisAbiSchema, res.output);))
                     }
                 }
             })
@@ -278,7 +273,7 @@ fn generate_rpc_functions<'a>(
                 let quot_err_ty = quote_ty(err_ty);
                 Some(quote! {
                     if (typeof res.error #(#neqeq)* "undefined") {
-                        throw abiDecode(#quot_err_ty, decodeHex(res.error));
+                        throw oasisAbiDecode(#quot_err_ty as OasisAbiSchema, res.error);
                     }
                 })
             } else {
@@ -296,7 +291,7 @@ fn generate_rpc_functions<'a>(
                 options?: RpcOptions
             ): Promise<#rpc_ret_ty> {
                 const res = await this.gateway.rpc({
-                    data: abiEncode([ #(#arg_idents),* ], [#(#arg_schema_tys),*]),
+                    data: oasisAbiEncode([#(#arg_schema_tys as OasisAbiSchema),*], [ #(#arg_idents),* ]),
                     address: this.address.bytes,
                     options,
                 });
