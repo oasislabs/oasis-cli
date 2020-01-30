@@ -38,10 +38,18 @@ pub fn generate(iface: &Interface) -> TokenStream {
     let rpc_functions = generate_rpc_functions(&iface.functions);
 
     quote! {
-        import { Buffer } from "buffer";
         import Gateway from "@oasislabs/gateway";
-        import { Address, Balance, RpcOptions } from "@oasislabs/service";
-        import { abiEncode, abiDecode, decodeHex, Tuple } from "@oasislabs/oasis-std";
+        import { RpcOptions } from "@oasislabs/service";
+        import {
+            AbiEncodable,
+            Address,
+            Balance,
+            Decoder as OasisAbiEncoder,
+            Encoder as OasisAbiDecoder,
+            abiDecode,
+            abiEncode,
+            decodeHex
+        } from "oasis-std";
 
         #(#imports)*
 
@@ -93,12 +101,15 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                                         } else {
                                             generate_tuple_class(
                                                 &variant.name,
-                                                fields.iter().map(|f| &f.ty),
+                                                &fields
+                                                    .iter()
+                                                    .map(|f| f.ty.clone())
+                                                    .collect::<Vec<_>>(),
                                             )
                                         }
                                     }
                                     Some(oasis_rpc::EnumFields::Tuple(tys)) => {
-                                        generate_tuple_class(&variant.name, tys.iter())
+                                        generate_tuple_class(&variant.name, &tys)
                                     }
                                     None => generate_struct_class(
                                         &variant.name,
@@ -156,29 +167,32 @@ fn generate_struct_class<'a>(
 ) -> TokenStream {
     let class_ident = format_ts_ident!(@class, struct_name);
 
-    let field_tys: Vec<_> = fields.iter().map(|field| quote_ty(&field.ty)).collect();
     let field_idents: Vec<_> = fields
         .iter()
         .map(|field| format_ts_ident!(@var, field.name))
         .collect();
-    let field_schema_tys = fields.iter().map(|field| quote_schema_ty(&field.ty));
+    let field_tys: Vec<_> = fields.iter().map(|field| quote_ty(&field.ty)).collect();
+    let field_schema_tys: Vec<_> = fields
+        .iter()
+        .map(|field| quote_schema_ty(&field.ty))
+        .collect();
 
     quote! {
-        export class #class_ident {
+        export class #class_ident implements AbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(fields: { #(#field_idents: #field_tys),* }) {
                 #(this.#field_idents = fields.#field_idents;)*
             }
 
-            public static abiDecode(reader: Buffer): #class_ident {
-                return new #class_ident({
-                    #(#field_idents: abiDecode(#field_schema_tys, reader),)*
-                });
+            public abiEncode(encoder: OasisAbiEncoder) {
+                #(abiEncode(#field_schema_tys, this.#field_idents, encoder);)*
             }
 
-            public abiEncode(writer: Buffer) {
-                #(abiEncode(this.#field_idents, writer);)*
+            public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
+                return new #class_ident({
+                    #(#field_idents: abiDecode(#field_schema_tys, decoder)),*
+                });
             }
 
             #extra_members
@@ -186,12 +200,9 @@ fn generate_struct_class<'a>(
     }
 }
 
-fn generate_tuple_class<'a>(
-    tuple_name: &str,
-    tys: impl IntoIterator<Item = &'a oasis_rpc::Type> + std::iter::TrustedLen,
-) -> TokenStream {
+fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStream {
     let class_ident = format_ts_ident!(@class, tuple_name);
-    let (field_idents, arg_idents): (Vec<_>, Vec<_>) = (0..tys.size_hint().0)
+    let (field_idents, arg_idents): (Vec<_>, Vec<_>) = (0..tys.len())
         .map(|i| {
             (
                 proc_macro2::Literal::usize_unsuffixed(i),
@@ -199,15 +210,28 @@ fn generate_tuple_class<'a>(
             )
         })
         .unzip();
-    let field_tys: Vec<_> = tys.into_iter().map(|ty| quote_ty(ty)).collect();
+    let field_tys: Vec<_> = tys.iter().map(|ty| quote_ty(ty)).collect();
+    let field_schema_tys: Vec<_> = tys.iter().map(quote_schema_ty).collect();
 
     quote! {
-        export class #class_ident {
+        export class #class_ident implements AbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(#(#arg_idents: #field_tys),*) {
                 #(this[#field_idents] = #arg_idents;)*
             }
+
+            public abiEncode(encoder: OasisAbiEncoder) {
+                #(abiEncode(#field_schema_tys, this[#field_idents], encoder));*
+            }
+
+            public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
+                return new #class_ident(
+                    #(abiDecode(#field_schema_tys, decoder)),*
+                );
+            }
+
+            public abiEncode
         }
     }
 }
@@ -222,6 +246,7 @@ fn generate_rpc_functions<'a>(
             .map(|inp| format_ts_ident!(@var, inp.name))
             .collect();
         let arg_tys = rpc.inputs.iter().map(|inp| quote_ty(&inp.ty));
+        let arg_schema_tys = rpc.inputs.iter().map(|inp| quote_schema_ty(&inp.ty));
 
         let fn_ident = format_ts_ident!(@var, rpc.name);
         let rpc_ret_ty = rpc
@@ -271,7 +296,7 @@ fn generate_rpc_functions<'a>(
                 options?: RpcOptions
             ): Promise<#rpc_ret_ty> {
                 const res = await this.gateway.rpc({
-                    data: abiEncode(new Tuple([ #(#arg_idents),* ])),
+                    data: abiEncode([ #(#arg_idents),* ], [#(#arg_schema_tys),*]),
                     address: this.address.bytes,
                     options,
                 });
@@ -335,31 +360,29 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
 fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
     use oasis_rpc::Type::*;
     match ty {
-        // TODO: add Boolean and F(32|64) support to borsh-ts
-        Bool => quote!("Boolean"),
-        U8 => quote!("U8"),
-        I8 => quote!("I8"),
-        U16 => quote!("U16"),
-        I16 => quote!("I16"),
-        U32 => quote!("U32"),
-        I32 => quote!("I32"),
-        U64 => quote!("U64"),
-        I64 => quote!("I64"),
-        F32 => quote!("F32"),
-        F64 => quote!("F64"),
-        Bytes => quote!(["U8"]),
-        String => quote!("String"),
-        Address => quote!(["U8", 20]),
-        Balance => quote!(["U8", 16]),
+        Bool => quote!("boolean"),
+        U8 => quote!("u8"),
+        I8 => quote!("i8"),
+        U16 => quote!("u16"),
+        I16 => quote!("i16"),
+        U32 => quote!("u32"),
+        I32 => quote!("i32"),
+        U64 => quote!("u64"),
+        I64 => quote!("i64"),
+        F32 => quote!("f32"),
+        F64 => quote!("f64"),
+        Bytes => quote!(["u8"]),
+        String => quote!("string"),
+        Address => quote!(Address),
+        Balance => quote!(Balance),
         Defined { namespace, ty } => {
             let ty_ident = format_ts_ident!(@class, ty);
-            let def_ty_ident = if let Some(ns) = namespace {
+            if let Some(ns) = namespace {
                 let ns_ident = format_ts_ident!(@import, ns);
-                format_ident!("{}_{}", ns_ident, ty_ident)
+                quote!(#ns_ident.#ty_ident)
             } else {
-                ty_ident
-            };
-            quote!(#def_ty_ident)
+                quote!(#ty_ident)
+            }
         }
         Tuple(tys) => {
             let quot_tys = tys.iter().map(quote_schema_ty);
@@ -372,7 +395,7 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         }
         List(ty) => {
             let quot_ty = quote_schema_ty(ty);
-            quote!([#quot_ty])
+            quote!([#quot_ty, Number.POSITIVE_INFINITY])
         }
         Set(ty) => {
             let quot_ty = quote_schema_ty(ty);
@@ -385,7 +408,7 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         }
         Optional(ty) => {
             let quot_ty = quote_schema_ty(ty);
-            quote!(#quot_ty | undefined)
+            quote!(["Option", #quot_ty])
         }
         Result(ok_ty, _err_ty) => {
             let quot_ty = quote_schema_ty(ok_ty);
