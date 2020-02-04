@@ -1,12 +1,9 @@
 use heck::*;
 use oasis_rpc::Interface;
-use proc_macro2::{Literal, Punct, Spacing, TokenStream};
+use proc_macro2::{Ident, Literal, Punct, Spacing, TokenStream};
 use quote::{format_ident, quote};
 
 macro_rules! format_ts_ident {
-    (@module, $name:expr) => {
-        format_ts_ident!(@raw, $name.to_kebab_case())
-    };
     (@import, $name:expr) => {
         format_ts_ident!(@raw, $name.to_mixed_case())
     };
@@ -29,19 +26,19 @@ pub fn generate(iface: &Interface) -> TokenStream {
 
     let imports = iface.imports.iter().map(|imp| {
         let import_ident = format_ts_ident!(@class, imp.name);
-        let module_name = format!("./{}", format_ts_ident!(@module, imp.name).to_string());
+        let module_name = module_name(&imp.name);
         quote!(import  #import_ident from #module_name)
     });
 
     let type_defs = generate_type_defs(&iface.type_defs);
 
-    let rpc_functions = generate_rpc_functions(&iface.functions);
+    let rpc_functions = generate_rpc_functions(&service_ident, &iface.functions);
 
     quote! {
-        import Gateway from "@oasislabs/gateway";
-        import { RpcOptions } from "@oasislabs/service";
+        import Buffer from "buffer";
+        import { OasisGateway, RpcOptions } from "@oasislabs/service";
         import {
-            OasisAbiEncodable,
+            AbiEncodable as OasisAbiEncodable,
             Address,
             Balance,
             Decoder as OasisAbiDecoder,
@@ -56,7 +53,7 @@ pub fn generate(iface: &Interface) -> TokenStream {
         #(#type_defs)*
 
         export class #service_ident {
-            public constructor(public address: Address, private gateway: Gateway) {}
+            public constructor(public address: Address, private gateway: OasisGateway) {}
 
             #(#rpc_functions)*
         }
@@ -232,6 +229,7 @@ fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStrea
 }
 
 fn generate_rpc_functions<'a>(
+    service_ident: &'a Ident,
     rpcs: &'a [oasis_rpc::Function],
 ) -> impl Iterator<Item = TokenStream> + 'a {
     rpcs.iter().map(move |rpc| {
@@ -240,10 +238,11 @@ fn generate_rpc_functions<'a>(
             .iter()
             .map(|inp| format_ts_ident!(@var, inp.name))
             .collect();
-        let arg_tys = rpc.inputs.iter().map(|inp| quote_ty(&inp.ty));
+        let arg_tys: Vec<_> = rpc.inputs.iter().map(|inp| quote_ty(&inp.ty)).collect();
         let arg_schema_tys = rpc.inputs.iter().map(|inp| quote_schema_ty(&inp.ty));
 
         let fn_ident = format_ts_ident!(@var, rpc.name);
+        let make_payload_ident = format_ident!("make{}Payload", rpc.name.to_camel_case());
         let rpc_ret_ty = rpc
             .output
             .as_ref()
@@ -291,12 +290,21 @@ fn generate_rpc_functions<'a>(
                 options?: RpcOptions
             ): Promise<#rpc_ret_ty> {
                 const res = await this.gateway.rpc({
-                    data: oasisAbiEncode([#(#arg_schema_tys as OasisAbiSchema),*], [ #(#arg_idents),* ]),
+                    data: #service_ident.#make_payload_ident(#(#arg_idents),*),
                     address: this.address.bytes,
                     options,
                 });
                 #err_handler
                 #returner
+            }
+
+            public static #make_payload_ident(
+                #(#arg_idents: #arg_tys),*#trailing_comma
+            ): Buffer {
+                return oasisAbiEncode(
+                    [ #(#arg_schema_tys as OasisAbiSchema),* ],
+                    [ #(#arg_idents),* ]
+                );
             }
         }
     })
@@ -410,4 +418,8 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
             quote!(#quot_ty) // NOTE: ensure proper (downstream) handling of error ty
         }
     }
+}
+
+pub fn module_name(iface_name: impl AsRef<str>) -> String {
+    iface_name.as_ref().to_kebab_case()
 }

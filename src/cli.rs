@@ -101,7 +101,7 @@ fn do_gen_completions(shell: clap::Shell, completions_file: &'static str) -> Res
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open(crate::oasis_dir!(data)?.join(completions_file))?;
+        .open(crate::oasis_xdg_dir!(data)?.join(completions_file))?;
     build_app().gen_completions_to("oasis", shell, &mut f);
     Ok(())
 }

@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     errors::{CliError, Error},
-    oasis_dir, utils,
+    oasis_xdg_dir, utils,
 };
 
 const OASIS_GENESIS_YEAR: u8 = 19;
@@ -24,7 +24,7 @@ cfg_if::cfg_if! {
 }
 
 pub fn installed_release() -> Result<Release, Error> {
-    let installed_release_file = oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE);
+    let installed_release_file = oasis_xdg_dir!(data)?.join(INSTALLED_RELEASE_FILE);
     Ok(serde_json::from_slice(&fs::read(installed_release_file)?)?)
 }
 
@@ -53,8 +53,8 @@ pub fn set(version: &str) -> Result<(), Error> {
         return Ok(());
     }
 
-    let bin_dir = crate::ensure_dir!(bin)?;
-    let cache_dir = oasis_dir!(cache)?;
+    let bin_dir = crate::ensure_xdg_dir!(bin)?;
+    let cache_dir = oasis_xdg_dir!(cache)?;
 
     let requested_version = ReleaseVersion::from_str(version)?;
 
@@ -97,7 +97,7 @@ pub fn set(version: &str) -> Result<(), Error> {
     }
 
     fs::write(
-        oasis_dir!(data)?.join(INSTALLED_RELEASE_FILE),
+        oasis_xdg_dir!(data)?.join(INSTALLED_RELEASE_FILE),
         serde_json::to_string_pretty(&release).unwrap(),
     )
     .ok(); // This isn't catastropic. We'll just have to re-download later.

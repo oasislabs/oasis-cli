@@ -69,7 +69,7 @@ pub fn init(config: &crate::config::Config) -> Result<(), Error> {
 }
 
 pub fn metrics_path() -> Result<std::path::PathBuf, Error> {
-    Ok(crate::oasis_dir!(data)?.join("metrics.jsonl"))
+    Ok(crate::oasis_xdg_dir!(data)?.join("metrics.jsonl"))
 }
 
 pub fn __emit(event: &'static str, data: serde_json::Value) -> Result<(), Error> {

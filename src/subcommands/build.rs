@@ -1,13 +1,15 @@
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     ffi::OsString,
+    io::Write as _,
     path::Path,
 };
 
 use crate::{
     command::{BuildTool, Verbosity},
-    emit,
+    emit, ensure_dir,
     errors::Result,
+    gen::typescript as ts,
     utils::{print_status, print_status_in, Status},
     workspace::{Artifacts, ProjectKind, Target, Workspace},
 };
@@ -69,16 +71,27 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
         if target.yields_artifact(Artifacts::SERVICE | Artifacts::RUST_CLIENT | Artifacts::APP) {
             match proj.kind {
                 ProjectKind::Rust => build_rust(target, &opts)?,
-                ProjectKind::JavaScript | ProjectKind::TypeScript => {
-                    build_javascript(&target, &opts)?
-                }
                 ProjectKind::Wasm => {
                     let out_file = Path::new(&target.name).with_extension("wasm");
                     prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
                 }
+                ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                    unreachable!("[tj]s services don't yet exist")
+                }
             }
-        } else if target.yields_artifact(Artifacts::TYPESCRIPT_CLIENT) {
+        }
+
+        if target.yields_artifact(Artifacts::TYPESCRIPT_CLIENT) {
             build_typescript_client(&target, &opts)?;
+        }
+
+        if target.yields_artifact(Artifacts::APP) {
+            match proj.kind {
+                ProjectKind::JavaScript => build_javascript_app(target, &opts)?,
+                ProjectKind::TypeScript => build_typescript_app(workspace, &target, &opts)?,
+                ProjectKind::Wasm => unreachable!("there's no such thing as a Wasm app"),
+                ProjectKind::Rust => unimplemented!("rust apps are not fully baked"),
+            }
         }
     }
     Ok(())
@@ -122,28 +135,27 @@ fn build_rust(target: &Target, opts: &BuildOptions) -> Result<()> {
         return Err(e);
     };
 
-    let target_dir = &target.project.target_dir;
-    let services_dir = target_dir.join("service");
-    if !services_dir.is_dir() {
-        std::fs::create_dir_all(&services_dir)?;
-    }
-
-    let mut wasm_dir = target_dir.join("wasm32-wasi");
-    wasm_dir.push(if opts.debug { "debug" } else { "release" });
-    emit!(cmd.build.prep_wasm);
-
     let wasm_name = format!("{}.wasm", target.name);
+
     if opts.verbosity > Verbosity::Quiet {
         print_status(Status::Preparing, &wasm_name);
     }
+
+    let mut wasm_dir = target.project.target_dir.join("wasm32-wasi");
+    wasm_dir.push(if opts.debug { "debug" } else { "release" });
     let wasm_file = wasm_dir.join(&wasm_name);
     if !wasm_file.is_file() {
         warn!("{} is not a regular file", wasm_file.display());
         return Ok(());
-    }
-    prep_wasm(&wasm_file, &services_dir.join(&wasm_name), opts.debug)?;
-
+    };
+    emit!(cmd.build.prep_wasm);
+    prep_wasm(
+        &wasm_file,
+        &ensure_dir!(target.artifacts_dir())?.join(&wasm_name),
+        opts.debug,
+    )?;
     emit!(cmd.build.done);
+
     Ok(())
 }
 
@@ -185,21 +197,49 @@ fn externalize_mem(module: &mut walrus::Module) {
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
-fn build_javascript(target: &Target, opts: &BuildOptions) -> Result<()> {
+fn build_javascript_app(target: &Target, opts: &BuildOptions) -> Result<()> {
     emit!(cmd.build.start, { "project_type": target.project.kind.name() });
 
-    BuildTool::for_target(target).build(
+    if let Err(e) = BuildTool::for_target(target).build(
         opts.builder_args.clone(),
         BTreeMap::new(), /* envs */
         opts.verbosity,
-    )?;
+    ) {
+        emit!(cmd.build.error);
+        return Err(e);
+    }
+
+    emit!(cmd.build.done);
+    Ok(())
+}
+
+fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOptions) -> Result<()> {
+    emit!(cmd.build.start, { "project_type": target.project.kind.name() });
+
+    // link deps
+    let deps_dir = ensure_dir!(target.deps_dir())?;
+    for dep in workspace.dependencies_of(target)? {
+        let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
+        let ts_link = deps_dir.join(&ts_filename);
+        if !ts_link.exists() {
+            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+        }
+    }
+
+    if let Err(e) = BuildTool::for_target(target).build(
+        opts.builder_args.clone(),
+        BTreeMap::new(), /* envs */
+        opts.verbosity,
+    ) {
+        emit!(cmd.build.error);
+        return Err(e);
+    }
 
     emit!(cmd.build.done);
     Ok(())
 }
 
 fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> {
-    use crate::gen::typescript as ts;
     let iface = crate::subcommands::ifextract::extract_interface(
         oasis_rpc::import::ImportLocation::Path(
             target
@@ -210,6 +250,17 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     )?
     .pop()
     .unwrap();
-    println!("{}", ts::generate(&iface));
+
+    let ts_file =
+        ensure_dir!(target.artifacts_dir())?.join(format!("{}.ts", ts::module_name(&target.name)));
+    let mut out_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&ts_file)
+        .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
+    out_file
+        .write_all(ts::generate(&iface).to_string().as_bytes())
+        .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
     Ok(())
 }

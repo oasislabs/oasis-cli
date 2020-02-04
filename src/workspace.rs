@@ -93,48 +93,75 @@ impl Workspace {
         top_targets: &[&'a Target],
     ) -> Result<Vec<&'a Target>> {
         let mut build_plan: Vec<&Target> = Vec::new();
+        let mut top_deps: Vec<Vec<&Target>> = Vec::new();
         for top_target in top_targets {
-            // ^ DFS is conducted for every top-level target so to mark the dependencies
-            //   with the artifacts required by the dep.
-            let mut unresolved_deps: Vec<&Target> = Vec::new();
-            let mut visited_deps: Vec<&Target> = Vec::new();
-            unresolved_deps.push(top_target);
-            while let Some(target) = unresolved_deps.last() {
-                if visited_deps.iter().any(|vt| vt.name == target.name) {
-                    let target = unresolved_deps.pop().unwrap();
-                    match build_plan.iter().find(|t| t.name == target.name) {
-                        Some(target) => {
-                            target
-                                .artifacts
-                                .update(|r| r | top_target.required_artifacts());
-                        }
-                        None => {
-                            build_plan.push(target);
-                        }
-                    }
-                    continue;
-                }
-                visited_deps.push(target);
-                let import_base_path = target.manifest_dir();
-                let target_name = target.name.to_string();
-                for (dep_name, import_loc) in target.dependencies.iter() {
-                    let dep_target =
-                        self.lookup_target(&dep_name, &import_loc, import_base_path)?;
-                    if unresolved_deps.iter().any(|v| v.name == dep_target.name) {
-                        return Err(WorkspaceError::CircularDependency(
-                            target_name,
-                            dep_target.name.to_string(),
-                        )
-                        .into());
-                    }
-                    dep_target
-                        .artifacts
-                        .update(|r| r | top_target.required_artifacts());
-                    unresolved_deps.push(dep_target);
+            let dep_targets = self.dependencies_of(top_target)?;
+
+            // Propagate top target artifact requirements.
+            for dep_target in dep_targets.iter() {
+                dep_target.artifacts.update(|default_artifacts| {
+                    default_artifacts | top_target.required_artifacts()
+                });
+            }
+
+            top_deps.push(dep_targets);
+        }
+
+        // Merge the topological sorts.
+        top_deps.sort_by_key(|deps| -(deps.len() as isize));
+        for dep_targets in top_deps.into_iter() {
+            for dep_target in dep_targets.into_iter() {
+                if !build_plan.iter().any(|t| t.name == dep_target.name) {
+                    build_plan.push(dep_target);
                 }
             }
         }
+
+        // Add the top targets to tbe build plan.
+        for top_target in top_targets {
+            if !build_plan.iter().any(|t| t.name == top_target.name) {
+                build_plan.push(top_target);
+            }
+        }
+
         Ok(build_plan)
+    }
+
+    /// Returns the reverse topologically sorted dependencies of this `Target`.
+    pub fn dependencies_of<'a>(&'a self, target: &'a Target) -> Result<Vec<&'a Target>> {
+        let mut sorted_deps = Vec::new();
+        let mut visited_deps: Vec<&Target> = Vec::new();
+        let mut unresolved_deps: Vec<&Target> = Vec::new();
+        unresolved_deps.push(target);
+        while let Some(dep) = unresolved_deps.last() {
+            if visited_deps.iter().any(|visited| visited.name == dep.name) {
+                sorted_deps.push(unresolved_deps.pop().unwrap());
+                continue;
+            }
+
+            visited_deps.push(dep);
+
+            let lookup_base = dep.manifest_dir();
+            let dep_name = &dep.name;
+            for (transitive_dep_name, import_loc) in dep.dependencies.iter() {
+                let transitive_dep_target =
+                    self.lookup_target(&transitive_dep_name, &import_loc, lookup_base)?;
+                if unresolved_deps
+                    .iter()
+                    .any(|unresolved| unresolved.name == transitive_dep_target.name)
+                {
+                    return Err(WorkspaceError::CircularDependency(
+                        dep_name.to_string(),
+                        transitive_dep_name.to_string(),
+                    )
+                    .into());
+                } else {
+                    unresolved_deps.push(transitive_dep_target);
+                }
+            }
+        }
+        sorted_deps.pop().unwrap(); // remove the target itself
+        Ok(sorted_deps)
     }
 
     pub fn projects_of(&self, targets: &[&Target]) -> Vec<&Project> {
@@ -311,20 +338,36 @@ impl Workspace {
             return Ok(Vec::new()); // Nothing to be done. Ignore the package.
         }
 
-        let target_dir = manifest_path.parent().unwrap();
+        let manifest_dir = manifest_path.parent().unwrap();
+
+        let tsconfig: Option<serde_json::Map<String, serde_json::Value>> =
+            std::fs::read(manifest_dir.join("tsconfig.json"))
+                .ok()
+                .and_then(|tsconfig| serde_json::from_slice(&tsconfig).ok());
+
         let mut proj = Box::pin(Project {
-            target_dir: target_dir.to_path_buf(),
-            manifest_path: manifest_path.to_path_buf(),
-            kind: if target_dir.join("tsconfig.json").is_file() {
+            kind: if tsconfig.is_some() {
                 ProjectKind::TypeScript
             } else {
                 ProjectKind::JavaScript
             },
+            manifest_path: manifest_path.to_path_buf(),
+            target_dir: tsconfig
+                .and_then(|tsconfig| {
+                    tsconfig
+                        .get("compilerOptions")
+                        .and_then(|opts| opts.as_object())
+                        .and_then(|opts| opts.get("outDir")) // TODO: support `extends`
+                        .map(|out_dir| {
+                            canonicalize_path(manifest_dir, Path::new(out_dir.as_str().unwrap()))
+                                .to_path_buf()
+                        })
+                })
+                .unwrap_or_else(|| manifest_dir.to_path_buf()),
             targets: Vec::new(),
         });
 
         let proj_ref = unsafe { &*(&*proj as *const Project) }; // @see `struct Workspace`
-        let manifest_dir = proj_ref.manifest_path.parent().unwrap().to_path_buf();
         proj.targets.push(Target {
             name: manifest
                 .get("name")
@@ -350,9 +393,8 @@ impl Workspace {
                     Ok((name, loc))
                 })
                 .collect::<Result<BTreeMap<_, _>>>()?,
-            path: manifest_dir,
+            path: manifest_dir.to_path_buf(),
             artifacts: Cell::new(Artifacts::APP),
-            //^ TODO: typescript services
         });
 
         Ok(vec![proj])
@@ -567,14 +609,35 @@ impl Target {
         self.project.manifest_path.parent().unwrap()
     }
 
+    /// Retuns the path to where Oasis-generated dependencies should be placed.
+    pub fn deps_dir(&self) -> PathBuf {
+        let target_dir = &self.project.target_dir;
+        match self.project.kind {
+            ProjectKind::Rust => target_dir.join("service"),
+            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                self.manifest_dir().join("node_modules/oasis-service")
+            }
+            ProjectKind::Wasm => target_dir.to_path_buf(),
+        }
+    }
+
+    /// Retuns the path to where Oasis build artifacts should be placed.
+    pub fn artifacts_dir(&self) -> PathBuf {
+        let target_dir = &self.project.target_dir;
+        match self.project.kind {
+            ProjectKind::Rust => target_dir.join("service"),
+            _ => target_dir.to_path_buf(),
+        }
+    }
+
     pub fn wasm_path(&self) -> Option<PathBuf> {
         use heck::SnakeCase as _;
         if self.yields_artifact(Artifacts::SERVICE) {
             Some(match self.project.kind {
                 ProjectKind::Rust => self
-                    .project
-                    .target_dir
-                    .join(format!("service/{}.wasm", self.name.to_snake_case())),
+                    .artifacts_dir()
+                    .join(format!("{}.wasm", self.name.to_snake_case())),
+                //  ^ TODO: replace with kebab case once Rust codegen moves to cli
                 _ => unreachable!(),
             })
         } else {
