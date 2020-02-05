@@ -40,8 +40,9 @@ impl From<i64> for Verbosity {
 // `cmd` captures output and is intended for internal use.
 #[macro_export]
 macro_rules! cmd {
-    ($prog:expr, $( $arg:expr ),+) => {{
+    ($(in $curdir:expr,)? $prog:expr, $( $arg:expr ),+) => {{
         let mut cmd = std::process::Command::new($prog);
+        $(cmd.current_dir(&$curdir);)?
         cmd.envs(std::env::vars_os());
         $( cmd.arg($arg); )+
         debug!("running internal command: {:?}", cmd);

@@ -111,7 +111,7 @@ impl Workspace {
         top_deps.sort_by_key(|deps| -(deps.len() as isize));
         for dep_targets in top_deps.into_iter() {
             for dep_target in dep_targets.into_iter() {
-                if !build_plan.iter().any(|t| t.name == dep_target.name) {
+                if !build_plan.contains(&dep_target) {
                     build_plan.push(dep_target);
                 }
             }
@@ -119,7 +119,7 @@ impl Workspace {
 
         // Add the top targets to tbe build plan.
         for top_target in top_targets {
-            if !build_plan.iter().any(|t| t.name == top_target.name) {
+            if !build_plan.contains(top_target) {
                 build_plan.push(top_target);
             }
         }
@@ -134,7 +134,7 @@ impl Workspace {
         let mut unresolved_deps: Vec<&Target> = Vec::new();
         unresolved_deps.push(target);
         while let Some(dep) = unresolved_deps.last() {
-            if visited_deps.iter().any(|visited| visited.name == dep.name) {
+            if visited_deps.contains(dep) {
                 sorted_deps.push(unresolved_deps.pop().unwrap());
                 continue;
             }
@@ -146,10 +146,7 @@ impl Workspace {
             for (transitive_dep_name, import_loc) in dep.dependencies.iter() {
                 let transitive_dep_target =
                     self.lookup_target(&transitive_dep_name, &import_loc, lookup_base)?;
-                if unresolved_deps
-                    .iter()
-                    .any(|unresolved| unresolved.name == transitive_dep_target.name)
-                {
+                if unresolved_deps.contains(&transitive_dep_target) {
                     return Err(WorkspaceError::CircularDependency(
                         dep_name.to_string(),
                         transitive_dep_name.to_string(),
@@ -602,7 +599,7 @@ impl Target {
     }
 
     pub fn yields_artifact(&self, artifact: Artifacts) -> bool {
-        self.artifacts.get().contains(artifact)
+        self.artifacts.get().intersects(artifact)
     }
 
     pub fn manifest_dir(&self) -> &Path {
@@ -651,6 +648,12 @@ impl Target {
             ProjectKind::JavaScript | ProjectKind::TypeScript => Artifacts::TYPESCRIPT_CLIENT,
             ProjectKind::Wasm => unimplemented!("cannot yet link wasm modules"),
         }
+    }
+}
+
+impl PartialEq for Target {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && std::ptr::eq(self.project, other.project)
     }
 }
 

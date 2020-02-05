@@ -35,8 +35,13 @@ pub fn generate(iface: &Interface) -> TokenStream {
     let rpc_functions = generate_rpc_functions(&service_ident, &iface.functions);
 
     quote! {
-        import Buffer from "buffer";
-        import { OasisGateway, RpcOptions } from "@oasislabs/service";
+        import { Buffer } from "buffer";
+        import {
+            DeployHeader,
+            DeployOptions,
+            OasisGateway,
+            RpcOptions
+        } from "@oasislabs/service";
         import {
             AbiEncodable as OasisAbiEncodable,
             Address,
@@ -53,7 +58,35 @@ pub fn generate(iface: &Interface) -> TokenStream {
         #(#type_defs)*
 
         export class #service_ident {
-            public constructor(public address: Address, private gateway: OasisGateway) {}
+            private constructor(readonly address: Address, private gateway: OasisGateway) {}
+
+            public connect(address: Address, gateway: OasisGateway): #service_ident {
+                return new #service_ident(address, gateway);
+            }
+
+            public deploy(gateway: OasisGateway, options: DeployOptions): #service_ident {
+                const data = ;
+                const res = await config.oasisGateway.deploy({
+                    data: DeployHeader.deployCode(
+                    { confidential: false }, // TODO: true
+                    bytes.concat([
+                        await config.bytecode(ServiceType.Capsule),
+                        initialOwner.publicKey,
+                    ]),
+                ),
+                    options: {
+                        gasLimit: 1_000_000,
+                    },
+                });
+                return new Capsule(
+                    new Address(res.address),
+                    initialOwner,
+                    config,
+                    BigInt(0),
+                );
+
+                return new #service_ident(address, gateway);
+            }
 
             #(#rpc_functions)*
         }
