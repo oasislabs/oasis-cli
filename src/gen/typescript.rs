@@ -21,8 +21,9 @@ macro_rules! format_ts_ident {
     };
 }
 
-pub fn generate(iface: &Interface) -> TokenStream {
+pub fn generate(iface: &Interface, bytecode_url: &url::Url) -> TokenStream {
     let service_ident = format_ts_ident!(@class, iface.name);
+    let bytecode_url_str = bytecode_url.as_str();
 
     let imports = iface.imports.iter().map(|imp| {
         let import_ident = format_ts_ident!(@class, imp.name);
@@ -32,15 +33,20 @@ pub fn generate(iface: &Interface) -> TokenStream {
 
     let type_defs = generate_type_defs(&iface.type_defs);
 
+    let deploy_function = generate_deploy_function(&service_ident, &iface.constructor);
     let rpc_functions = generate_rpc_functions(&service_ident, &iface.functions);
 
     quote! {
         import { Buffer } from "buffer";
+        import { LocalStorage as OasisLocalStorage, /* DB */ } from "@oasislabs/common";
+        import * as c10l from "@oasislabs/confidential";
         import {
+            Address as LegacyAddress,
             DeployHeader,
-            DeployOptions,
+            // DeployOptions,
             OasisGateway,
-            RpcOptions
+            RpcOptions,
+            RpcResponse,
         } from "@oasislabs/service";
         import {
             AbiEncodable as OasisAbiEncodable,
@@ -58,34 +64,52 @@ pub fn generate(iface: &Interface) -> TokenStream {
         #(#type_defs)*
 
         export class #service_ident {
+            public static BYTECODE_URL = #bytecode_url_str;
+
+            private keys?: c10l.AeadKeys;
+
             private constructor(readonly address: Address, private gateway: OasisGateway) {}
 
-            public connect(address: Address, gateway: OasisGateway): #service_ident {
+            private async _initKeys() {
+                if (!this.keys) {
+                    const keyStore = new c10l.KeyStore(new OasisLocalStorage(), this.gateway);
+                    const serviceKey = await keyStore.publicKey(
+                        new LegacyAddress(this.address.bytes)
+                    );
+                    const clientKeyPair = keyStore.localKeys();
+                    this.keys = {
+                        peerPublicKey: serviceKey,
+                        publicKey: clientKeyPair.publicKey,
+                        privateKey: clientKeyPair.privateKey,
+                    };
+                }
+                return this.keys;
+            }
+
+            public static async connect(
+                address: Address,
+                gateway: OasisGateway
+            ): Promise<#service_ident> {
                 return new #service_ident(address, gateway);
             }
 
-            public deploy(gateway: OasisGateway, options: DeployOptions): #service_ident {
-                const data = ;
-                const res = await config.oasisGateway.deploy({
-                    data: DeployHeader.deployCode(
-                    { confidential: false }, // TODO: true
-                    bytes.concat([
-                        await config.bytecode(ServiceType.Capsule),
-                        initialOwner.publicKey,
-                    ]),
-                ),
-                    options: {
-                        gasLimit: 1_000_000,
-                    },
-                });
-                return new Capsule(
-                    new Address(res.address),
-                    initialOwner,
-                    config,
-                    BigInt(0),
-                );
+            #deploy_function
 
-                return new #service_ident(address, gateway);
+            private async _makeRpc(payload: Buffer, options?: RpcOptions): Promise<RpcResponse> {
+                const keys = await this._initKeys();
+                const data = await c10l.encrypt(
+                    c10l.nonce(),
+                    payload,
+                    keys.peerPublicKey,
+                    keys.publicKey,
+                    keys.privateKey,
+                    new Uint8Array(), // TODO: support AAD via `options`
+                );
+                return this.gateway.rpc({
+                    address: this.address.bytes,
+                    data,
+                    options,
+                });
             }
 
             #(#rpc_functions)*
@@ -261,6 +285,61 @@ fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStrea
     }
 }
 
+fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor) -> TokenStream {
+    let err_handler = ctor.error.as_ref().map(generate_error_handler);
+
+    let arg_idents: Vec<_> = ctor
+        .inputs
+        .iter()
+        .map(|field| format_ts_ident!(@var, field.name))
+        .collect();
+    let arg_tys: Vec<_> = ctor
+        .inputs
+        .iter()
+        .map(|field| quote_ty(&field.ty))
+        .collect();
+    let arg_schema_tys = ctor.inputs.iter().map(|field| quote_schema_ty(&field.ty));
+
+    quote! {
+        public static async deploy(
+            #(#arg_idents: #arg_tys,)*
+            gateway: OasisGateway
+        ): Promise<#service_ident> {
+            const data = DeployHeader.deployCode(
+                { confidential: true }, // TODO: expiry
+                await #service_ident.makeDeployPayload(#(#arg_idents),*)
+            );
+            const res = await gateway.deploy({ data });
+            #err_handler
+            return new #service_ident(new Address(res.address), gateway);
+        }
+
+        public static async makeDeployPayload(#(#arg_idents: #arg_tys,)*): Promise<Buffer> {
+
+            // TODO: move bytecode fetching to oasis-std
+            let bytecode;
+            if (#service_ident.BYTECODE_URL.startsWith("file://")) {
+                bytecode = await require("fs").promises.readFile(
+                    #service_ident.BYTECODE_URL.slice("file://".length)
+                );
+            } else {
+                bytecode = new Uint8Array(
+                    await (await fetch(#service_ident.BYTECODE_URL)).arrayBuffer()
+                );
+            }
+
+            const encoder = new OasisAbiEncoder();
+            encoder.writeU8Array(bytecode);
+            const payload = oasisAbiEncode(
+                [ #(#arg_schema_tys as OasisAbiSchema),* ],
+                [ #(#arg_idents),* ],
+                encoder
+            );
+            return encoder.finish();
+        }
+    }
+}
+
 fn generate_rpc_functions<'a>(
     service_ident: &'a Ident,
     rpcs: &'a [oasis_rpc::Function],
@@ -290,50 +369,33 @@ fn generate_rpc_functions<'a>(
                     Tuple(tys) | Result(box Tuple(tys), _) if tys.is_empty() => None,
                     _ => {
                         let quot_schema_ty = quote_schema_ty(output);
-                        Some(quote!(return oasisAbiDecode(#quot_schema_ty as OasisAbiSchema, res.output);))
+                        Some(quote! {
+                            return oasisAbiDecode(#quot_schema_ty as OasisAbiSchema, res.output);
+                        })
                     }
                 }
             })
             .unwrap_or_else(|| quote!(return;));
         let err_handler = rpc.output.as_ref().and_then(|output| {
             if let oasis_rpc::Type::Result(_, err_ty) = &output {
-                let neqeq = [
-                    Punct::new('!', Spacing::Joint),
-                    Punct::new('=', Spacing::Joint),
-                    Punct::new('=', Spacing::Alone),
-                ];
-                let quot_err_ty = quote_ty(err_ty);
-                Some(quote! {
-                    if (typeof res.error #(#neqeq)* "undefined") {
-                        throw oasisAbiDecode(#quot_err_ty as OasisAbiSchema, res.error);
-                    }
-                })
+                Some(generate_error_handler(err_ty))
             } else {
                 None
             }
         });
-        let trailing_comma = if !rpc.inputs.is_empty() {
-            quote!(,)
-        } else {
-            quote!()
-        };
+
         quote! {
             public async #fn_ident(
-                #(#arg_idents: #arg_tys),*#trailing_comma
+                #(#arg_idents: #arg_tys,)*
                 options?: RpcOptions
             ): Promise<#rpc_ret_ty> {
-                const res = await this.gateway.rpc({
-                    data: #service_ident.#make_payload_ident(#(#arg_idents),*),
-                    address: this.address.bytes,
-                    options,
-                });
+                const payload = #service_ident.#make_payload_ident(#(#arg_idents),*);
+                const res = await this._makeRpc(payload, options);
                 #err_handler
                 #returner
             }
 
-            public static #make_payload_ident(
-                #(#arg_idents: #arg_tys),*#trailing_comma
-            ): Buffer {
+            public static #make_payload_ident(#(#arg_idents: #arg_tys,)*): Buffer {
                 return oasisAbiEncode(
                     [ #(#arg_schema_tys as OasisAbiSchema),* ],
                     [ #(#arg_idents),* ]
@@ -449,6 +511,20 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         Result(ok_ty, _err_ty) => {
             let quot_ty = quote_schema_ty(ok_ty);
             quote!(#quot_ty) // NOTE: ensure proper (downstream) handling of error ty
+        }
+    }
+}
+
+fn generate_error_handler(err_ty: &oasis_rpc::Type) -> TokenStream {
+    let neqeq = [
+        Punct::new('!', Spacing::Joint),
+        Punct::new('=', Spacing::Joint),
+        Punct::new('=', Spacing::Alone),
+    ];
+    let quot_schema_err_ty = quote_ty(err_ty);
+    quote! {
+        if (typeof res.error #(#neqeq)* "undefined") {
+            throw oasisAbiDecode(#quot_schema_err_ty as OasisAbiSchema, res.error);
         }
     }
 }

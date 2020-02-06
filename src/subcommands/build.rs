@@ -1,6 +1,7 @@
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     ffi::OsString,
+    fs,
     io::Write as _,
     path::Path,
 };
@@ -264,12 +265,13 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
 }
 
 fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> {
+    let wasm_path = target
+        .wasm_path()
+        .expect("service target must yield a wasm artifact");
+    let bytecode_url = url::Url::parse(&format!("file://{}", wasm_path.display())).unwrap();
+
     let iface = crate::subcommands::ifextract::extract_interface(
-        oasis_rpc::import::ImportLocation::Path(
-            target
-                .wasm_path()
-                .expect("service target must yield a wasm artifact"),
-        ),
+        oasis_rpc::import::ImportLocation::Path(wasm_path.to_path_buf()),
         target.manifest_dir(),
     )?
     .pop()
@@ -277,14 +279,14 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
 
     let ts_file =
         ensure_dir!(target.artifacts_dir())?.join(format!("{}.ts", ts::module_name(&target.name)));
-    let mut out_file = std::fs::OpenOptions::new()
+    let mut out_file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(&ts_file)
         .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
     out_file
-        .write_all(ts::generate(&iface).to_string().as_bytes())
+        .write_all(ts::generate(&iface, &bytecode_url).to_string().as_bytes())
         .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
     Ok(())
 }
