@@ -58,9 +58,11 @@ macro_rules! cmd {
         })
         .and_then(|output| {
             if !output.status.success() {
-                Err(anyhow!(
-                        "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
-                ))
+                let err_msg = [
+                    std::str::from_utf8(&output.stdout).unwrap(),
+                    std::str::from_utf8(&output.stderr).unwrap()
+                ].join("\n");
+                Err(anyhow!("`{}` exited with error:\n{}", $prog, err_msg.trim()))
             } else {
                 Ok(output)
             }

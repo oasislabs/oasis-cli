@@ -1,6 +1,6 @@
 use heck::*;
 use oasis_rpc::Interface;
-use proc_macro2::{Ident, Literal, Punct, Spacing, TokenStream};
+use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 
 macro_rules! format_ts_ident {
@@ -38,26 +38,7 @@ pub fn generate(iface: &Interface, bytecode_url: &url::Url) -> TokenStream {
 
     quote! {
         import { Buffer } from "buffer";
-        import { LocalStorage as OasisLocalStorage, /* DB */ } from "@oasislabs/common";
-        import * as c10l from "@oasislabs/confidential";
-        import {
-            Address as LegacyAddress,
-            DeployHeader,
-            // DeployOptions,
-            OasisGateway,
-            RpcOptions,
-            RpcResponse,
-        } from "@oasislabs/service";
-        import {
-            AbiEncodable as OasisAbiEncodable,
-            Address,
-            Balance,
-            Decoder as OasisAbiDecoder,
-            Encoder as OasisAbiEncoder,
-            Schema as OasisAbiSchema,
-            abiDecode as oasisAbiDecode,
-            abiEncode as oasisAbiEncode,
-        } from "oasis-std";
+        import * as oasis from "oasis-std";
 
         #(#imports)*
 
@@ -66,51 +47,16 @@ pub fn generate(iface: &Interface, bytecode_url: &url::Url) -> TokenStream {
         export class #service_ident {
             public static BYTECODE_URL = #bytecode_url_str;
 
-            private keys?: c10l.AeadKeys;
-
-            private constructor(readonly address: Address, private gateway: OasisGateway) {}
-
-            private async _initKeys() {
-                if (!this.keys) {
-                    const keyStore = new c10l.KeyStore(new OasisLocalStorage(), this.gateway);
-                    const serviceKey = await keyStore.publicKey(
-                        new LegacyAddress(this.address.bytes)
-                    );
-                    const clientKeyPair = keyStore.localKeys();
-                    this.keys = {
-                        peerPublicKey: serviceKey,
-                        publicKey: clientKeyPair.publicKey,
-                        privateKey: clientKeyPair.privateKey,
-                    };
-                }
-                return this.keys;
-            }
+            private constructor(readonly address: oasis.Address, private gateway: oasis.Gateway) {}
 
             public static async connect(
-                address: Address,
-                gateway: OasisGateway
+                address: oasis.Address,
+                gateway: oasis.Gateway
             ): Promise<#service_ident> {
                 return new #service_ident(address, gateway);
             }
 
             #deploy_function
-
-            private async _makeRpc(payload: Buffer, options?: RpcOptions): Promise<RpcResponse> {
-                const keys = await this._initKeys();
-                const data = await c10l.encrypt(
-                    c10l.nonce(),
-                    payload,
-                    keys.peerPublicKey,
-                    keys.publicKey,
-                    keys.privateKey,
-                    new Uint8Array(), // TODO: support AAD via `options`
-                );
-                return this.gateway.rpc({
-                    address: this.address.bytes,
-                    data,
-                    options,
-                });
-            }
 
             #(#rpc_functions)*
         }
@@ -126,7 +72,9 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
             use oasis_rpc::TypeDef;
 
             match type_def {
-                TypeDef::Struct { name, fields } => generate_struct_class(name, fields, quote!()),
+                TypeDef::Struct { name, fields } => {
+                    generate_struct_class(name, fields, quote!(), None)
+                }
                 TypeDef::Enum { name, variants } => {
                     let type_ident = format_ts_ident!(@class, name);
 
@@ -145,37 +93,56 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                         .iter()
                         .map(|v| format_ts_ident!(@class, v.name))
                         .collect();
-                    let variant_classes = variants.iter().map(|variant| match &variant.fields {
-                        Some(oasis_rpc::EnumFields::Named(fields)) => {
-                            let is_tuple = fields
-                                .iter()
-                                .enumerate()
-                                .all(|(i, field)| field.name == i.to_string());
-                            if !is_tuple {
-                                generate_struct_class(&variant.name, fields, quote!())
-                            } else {
-                                generate_tuple_class(
+                    let variant_classes =
+                        variants
+                            .iter()
+                            .enumerate()
+                            .map(|(i, variant)| match &variant.fields {
+                                Some(oasis_rpc::EnumFields::Named(fields)) => {
+                                    let is_tuple = fields
+                                        .iter()
+                                        .enumerate()
+                                        .all(|(i, field)| field.name == i.to_string());
+                                    if !is_tuple {
+                                        generate_struct_class(
+                                            &variant.name,
+                                            fields,
+                                            quote!(),
+                                            Some(i),
+                                        )
+                                    } else {
+                                        generate_tuple_class(
+                                            &variant.name,
+                                            &fields
+                                                .iter()
+                                                .map(|f| f.ty.clone())
+                                                .collect::<Vec<_>>(),
+                                            quote!(),
+                                            Some(i),
+                                        )
+                                    }
+                                }
+                                Some(oasis_rpc::EnumFields::Tuple(tys)) => {
+                                    generate_tuple_class(&variant.name, &tys, quote!(), Some(i))
+                                }
+                                None => generate_tuple_class(
                                     &variant.name,
-                                    &fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>(),
-                                )
-                            }
-                        }
-                        Some(oasis_rpc::EnumFields::Tuple(tys)) => {
-                            generate_tuple_class(&variant.name, &tys)
-                        }
-                        None => generate_tuple_class(&variant.name, &[] /* fields */),
-                    });
+                                    &[], /* no fields */
+                                    quote!(),
+                                    Some(i),
+                                ),
+                            });
 
                     quote! {
-                        module #type_ident {
+                        export module #type_ident {
                             #(#variant_classes)*
 
-                            export function abiDecode(decoder: OasisAbiDecoder): #type_ident {
-                                const variantId = decoder.readU32();
-                                return (#type_ident as any).VARIANTS[variantId].oasisAbiDecode(decoder);
+                            export function abiDecode(decoder: oasis.Decoder): #type_ident {
+                                const variantId = decoder.readU8();
+                                return (#type_ident as any).VARIANTS[variantId].abiDecode(decoder);
                             }
 
-                            const VARIANTS: Function[] = [ #(#variant_idents),* ];
+                            export const VARIANTS: Function[] = [ #(#variant_idents),* ];
                         }
                         export type #type_ident = #(#type_ident.#variant_idents)|*;
                     }
@@ -204,7 +171,7 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                             ty: f.ty,
                         })
                         .collect();
-                    generate_struct_class(name, &fields, extra_members)
+                    generate_struct_class(name, &fields, extra_members, None)
                 }
             }
         })
@@ -215,6 +182,7 @@ fn generate_struct_class<'a>(
     struct_name: &str,
     fields: &'a [oasis_rpc::Field],
     extra_members: TokenStream,
+    variant_idx: Option<usize>,
 ) -> TokenStream {
     let class_ident = format_ts_ident!(@class, struct_name);
 
@@ -228,21 +196,27 @@ fn generate_struct_class<'a>(
         .map(|field| quote_schema_ty(&field.ty))
         .collect();
 
+    let variant_encoder = variant_idx.map(|idx| {
+        let idx_lit = Literal::usize_unsuffixed(idx);
+        quote!(encoder.writeU8(#idx_lit);)
+    });
+
     quote! {
-        export class #class_ident implements OasisAbiEncodable {
+        export class #class_ident implements oasis.AbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(fields: { #(#field_idents: #field_tys),* }) {
                 #(this.#field_idents = fields.#field_idents;)*
             }
 
-            public abiEncode(encoder: OasisAbiEncoder) {
-                #(oasisAbiEncode(#field_schema_tys as OasisAbiSchema, this.#field_idents, encoder);)*
+            public abiEncode(encoder: oasis.Encoder) {
+                #variant_encoder
+                #(oasis.abiEncode(#field_schema_tys as oasis.Schema, this.#field_idents, encoder);)*
             }
 
-            public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
+            public static abiDecode(decoder: oasis.Decoder): #class_ident {
                 return new #class_ident({
-                    #(#field_idents: oasisAbiDecode(#field_schema_tys as OasisAbiSchema, decoder)),*
+                    #(#field_idents: oasis.abiDecode(#field_schema_tys as oasis.Schema, decoder)),*
                 });
             }
 
@@ -251,7 +225,12 @@ fn generate_struct_class<'a>(
     }
 }
 
-fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStream {
+fn generate_tuple_class(
+    tuple_name: &str,
+    tys: &[oasis_rpc::Type],
+    extra_members: TokenStream,
+    variant_idx: Option<usize>,
+) -> TokenStream {
     let class_ident = format_ts_ident!(@class, tuple_name);
     let (field_idents, arg_idents): (Vec<_>, Vec<_>) = (0..tys.len())
         .map(|i| {
@@ -264,30 +243,36 @@ fn generate_tuple_class(tuple_name: &str, tys: &[oasis_rpc::Type]) -> TokenStrea
     let field_tys: Vec<_> = tys.iter().map(|ty| quote_ty(ty)).collect();
     let field_schema_tys: Vec<_> = tys.iter().map(quote_schema_ty).collect();
 
+    let variant_encoder = variant_idx.map(|idx| {
+        let idx_lit = Literal::usize_unsuffixed(idx);
+        quote!(encoder.writeU8(#idx_lit);)
+    });
+
     quote! {
-        export class #class_ident implements OasisAbiEncodable {
+        export class #class_ident implements oasis.AbiEncodable {
             #(public #field_idents: #field_tys;)*
 
             public constructor(#(#arg_idents: #field_tys),*) {
                 #(this[#field_idents] = #arg_idents;)*
             }
 
-            public abiEncode(encoder: OasisAbiEncoder) {
-                #(oasisAbiEncode(#field_schema_tys as OasisAbiSchema, this[#field_idents], encoder));*
+            public abiEncode(encoder: oasis.Encoder) {
+                #variant_encoder
+                #(oasis.abiEncode(#field_schema_tys as oasis.Schema, this[#field_idents], encoder));*
             }
 
-            public static abiDecode(decoder: OasisAbiDecoder): #class_ident {
+            public static abiDecode(decoder: oasis.Decoder): #class_ident {
                 return new #class_ident(
-                    #(oasisAbiDecode(#field_schema_tys as OasisAbiSchema, decoder)),*
+                    #(oasis.abiDecode(#field_schema_tys as oasis.Schema, decoder)),*
                 );
             }
+
+            #extra_members
         }
     }
 }
 
 fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor) -> TokenStream {
-    let err_handler = ctor.error.as_ref().map(generate_error_handler);
-
     let arg_idents: Vec<_> = ctor
         .inputs
         .iter()
@@ -300,22 +285,27 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         .collect();
     let arg_schema_tys = ctor.inputs.iter().map(|field| quote_schema_ty(&field.ty));
 
+    let deploy_try_catch = generate_error_handler(
+        ctor.error.as_ref(),
+        quote! {
+            const deployedAddr = await gateway.deploy(
+                await #service_ident.makeDeployPayload(#(#arg_idents),*),
+                options,
+            );
+            return new #service_ident(deployedAddr, gateway);
+        },
+    );
+
     quote! {
         public static async deploy(
             #(#arg_idents: #arg_tys,)*
-            gateway: OasisGateway
+            gateway: oasis.Gateway,
+            options?: oasis.DeployOptions,
         ): Promise<#service_ident> {
-            const data = DeployHeader.deployCode(
-                { confidential: true }, // TODO: expiry
-                await #service_ident.makeDeployPayload(#(#arg_idents),*)
-            );
-            const res = await gateway.deploy({ data });
-            #err_handler
-            return new #service_ident(new Address(res.address), gateway);
+            #deploy_try_catch
         }
 
         public static async makeDeployPayload(#(#arg_idents: #arg_tys,)*): Promise<Buffer> {
-
             // TODO: move bytecode fetching to oasis-std
             let bytecode;
             if (#service_ident.BYTECODE_URL.startsWith("file://")) {
@@ -328,14 +318,13 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
                 );
             }
 
-            const encoder = new OasisAbiEncoder();
+            const encoder = new oasis.Encoder();
             encoder.writeU8Array(bytecode);
-            const payload = oasisAbiEncode(
-                [ #(#arg_schema_tys as OasisAbiSchema),* ],
+            return oasis.abiEncode(
+                [ #(#arg_schema_tys as oasis.Schema),* ],
                 [ #(#arg_idents),* ],
                 encoder
             );
-            return encoder.finish();
         }
     }
 }
@@ -344,7 +333,9 @@ fn generate_rpc_functions<'a>(
     service_ident: &'a Ident,
     rpcs: &'a [oasis_rpc::Function],
 ) -> impl Iterator<Item = TokenStream> + 'a {
-    rpcs.iter().map(move |rpc| {
+    rpcs.iter().enumerate().map(move |(i, rpc)| {
+        let fn_id_lit = Literal::usize_unsuffixed(i);
+
         let arg_idents: Vec<_> = rpc
             .inputs
             .iter()
@@ -370,35 +361,42 @@ fn generate_rpc_functions<'a>(
                     _ => {
                         let quot_schema_ty = quote_schema_ty(output);
                         Some(quote! {
-                            return oasisAbiDecode(#quot_schema_ty as OasisAbiSchema, res.output);
+                            return oasis.abiDecode(#quot_schema_ty as oasis.Schema, res);
                         })
                     }
                 }
             })
             .unwrap_or_else(|| quote!(return;));
-        let err_handler = rpc.output.as_ref().and_then(|output| {
-            if let oasis_rpc::Type::Result(_, err_ty) = &output {
-                Some(generate_error_handler(err_ty))
-            } else {
-                None
-            }
-        });
+        let rpc_try_catch = generate_error_handler(
+            rpc.output.as_ref().and_then(|output| {
+                if let oasis_rpc::Type::Result(_, box err_ty) = output {
+                    Some(err_ty)
+                } else {
+                    None
+                }
+            }),
+            quote! {
+                const res = await this.gateway.rpc(this.address, payload, options);
+                #returner
+            },
+        );
 
         quote! {
             public async #fn_ident(
                 #(#arg_idents: #arg_tys,)*
-                options?: RpcOptions
+                options?: oasis.RpcOptions
             ): Promise<#rpc_ret_ty> {
                 const payload = #service_ident.#make_payload_ident(#(#arg_idents),*);
-                const res = await this._makeRpc(payload, options);
-                #err_handler
-                #returner
+                #rpc_try_catch
             }
 
             public static #make_payload_ident(#(#arg_idents: #arg_tys,)*): Buffer {
-                return oasisAbiEncode(
-                    [ #(#arg_schema_tys as OasisAbiSchema),* ],
-                    [ #(#arg_idents),* ]
+                const encoder = new oasis.Encoder();
+                encoder.writeU8(#fn_id_lit);
+                return oasis.abiEncode(
+                    [ #(#arg_schema_tys as oasis.Schema),* ],
+                    [ #(#arg_idents),* ],
+                    encoder
                 );
             }
         }
@@ -409,11 +407,12 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
     use oasis_rpc::Type::*;
     match ty {
         Bool => quote!(boolean),
-        U8 | I8 | U16 | I16 | U32 | I32 | U64 | I64 | F32 | F64 => quote!(number),
+        U8 | I8 | U16 | I16 | U32 | I32 | F32 | F64 => quote!(number),
+        U64 | I64 => quote!(BigInt),
         Bytes => quote!(Uint8Array),
         String => quote!(string),
-        Address => quote!(Address),
-        Balance => quote!(Balance),
+        Address => quote!(oasis.Address),
+        Balance => quote!(oasis.Balance),
         Defined { namespace, ty } => {
             let ty_ident = format_ts_ident!(@class, ty);
             if let Some(ns) = namespace {
@@ -431,6 +430,16 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
                 quote!([ #(#quot_tys),* ])
             }
         }
+        List(box U8) | Array(box U8, _) => quote!(Uint8Array),
+        List(box I8) | Array(box I8, _) => quote!(Int8Array),
+        List(box U16) | Array(box U16, _) => quote!(Uint16Array),
+        List(box I16) | Array(box I16, _) => quote!(Int16Array),
+        List(box U32) | Array(box U32, _) => quote!(Uint32Array),
+        List(box I32) | Array(box I32, _) => quote!(Int32Array),
+        List(box U64) | Array(box U64, _) => quote!(BigUint64Array),
+        List(box I64) | Array(box I64, _) => quote!(BigInt64Array),
+        List(box F32) | Array(box F32, _) => quote!(Float32Array),
+        List(box F64) | Array(box F64, _) => quote!(Float64Array),
         List(ty) | Array(ty, _) => {
             let quot_ty = quote_ty(ty);
             quote!(#quot_ty[])
@@ -449,8 +458,7 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
             quote!(#quot_ty | undefined)
         }
         Result(ok_ty, _err_ty) => {
-            let quot_ty = quote_ty(ok_ty);
-            quote!(#quot_ty) // NOTE: ensure proper handling of error ty
+            quote_ty(ok_ty) // NOTE: ensure proper (downstream) handling of error ty
         }
     }
 }
@@ -469,10 +477,10 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         I64 => quote!("i64"),
         F32 => quote!("f32"),
         F64 => quote!("f64"),
-        Bytes => quote!(["u8"]),
+        Bytes => quote!(["u8", Number.POSITIVE_INFINITY]),
         String => quote!("string"),
-        Address => quote!(Address),
-        Balance => quote!(Balance),
+        Address => quote!(oasis.Address),
+        Balance => quote!(oasis.Balance),
         Defined { namespace, ty } => {
             let ty_ident = format_ts_ident!(@class, ty);
             if let Some(ns) = namespace {
@@ -509,22 +517,26 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
             quote!(["Option", #quot_ty])
         }
         Result(ok_ty, _err_ty) => {
-            let quot_ty = quote_schema_ty(ok_ty);
-            quote!(#quot_ty) // NOTE: ensure proper (downstream) handling of error ty
+            quote_schema_ty(ok_ty) // NOTE: ensure proper (downstream) handling of error ty
         }
     }
 }
 
-fn generate_error_handler(err_ty: &oasis_rpc::Type) -> TokenStream {
-    let neqeq = [
-        Punct::new('!', Spacing::Joint),
-        Punct::new('=', Spacing::Joint),
-        Punct::new('=', Spacing::Alone),
-    ];
-    let quot_schema_err_ty = quote_ty(err_ty);
+fn generate_error_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
+    let err_handler = err_ty.map(|err_ty| {
+        let quot_schema_err_ty = quote_ty(err_ty);
+        quote! {
+            if (e instanceof oasis.ExecutionError) {
+                throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e.output);
+            }
+        }
+    });
     quote! {
-        if (typeof res.error #(#neqeq)* "undefined") {
-            throw oasisAbiDecode(#quot_schema_err_ty as OasisAbiSchema, res.error);
+        try {
+            #try_block
+        } catch (e) {
+            #err_handler
+            throw e;
         }
     }
 }

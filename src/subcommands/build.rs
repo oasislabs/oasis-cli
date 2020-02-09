@@ -227,7 +227,8 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
     let deps_dir = ensure_dir!(target.deps_dir())?;
     if !deps_dir.join("package.json").exists() {
         crate::cmd!(in &deps_dir, "npm", "init", "-y")?;
-        crate::cmd!(in &deps_dir, "npm", "install", "buffer", "oasis-std", "@oasislabs/service")?;
+        crate::cmd!(in &deps_dir, "npm", "install", "buffer", "oasis-std")?;
+        crate::cmd!(in &deps_dir, "npm", "install", "-D", "prettier")?;
     }
 
     for dep in workspace.dependencies_of(target)? {
@@ -241,6 +242,7 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
             "npx",
             "tsc",
             &ts_filename,
+            "--pretty",
             "--allowSyntheticDefaultImports",
             "--declaration",
             "--module", "umd",
@@ -288,5 +290,6 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     out_file
         .write_all(ts::generate(&iface, &bytecode_url).to_string().as_bytes())
         .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
+    crate::cmd!("npx", "prettier", "--write", &ts_file)?;
     Ok(())
 }

@@ -480,7 +480,7 @@ impl<'a, 't> TopTargets<'a, 't> {
                 phases: Phases::BUILD,
                 dependencies: BTreeMap::new(),
                 project: proj_ref,
-                artifacts: Cell::new(Artifacts::empty()),
+                artifacts: Cell::new(Artifacts::SERVICE),
             });
             unsafe { &mut *self.workspace.projects.get() }.push(proj); // @see `struct Workspace`
             targets.push(
