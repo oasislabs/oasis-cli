@@ -28,8 +28,7 @@ jobs:
       - run:
           name: Install oasis-build
           command: |
-            curl --proto '=https' --tlsv1.2 -sSL https://get.oasis.dev | python3 - --speedrun --toolchain unstable --no-node
-            cp /root/.local/bin/oasis-build /root/.cargo/bin
+            cargo install --git http://github.com/oasislabs/oasis-rs oasis-build --debug
       - run: pytest -n 8 tests/
 
   clippy:
