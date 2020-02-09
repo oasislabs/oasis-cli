@@ -117,7 +117,7 @@ impl Workspace {
             }
         }
 
-        // Add the top targets to tbe build plan.
+        // Add the top targets to the build plan.
         for top_target in top_targets {
             if !build_plan.contains(top_target) {
                 build_plan.push(top_target);
@@ -251,7 +251,7 @@ impl Workspace {
                 let is_buildable = target.kind[0] == "bin"; // may include unit tests
                 let is_testable = target.kind[0] == "test"; // integration tests
 
-                let mut phases = Phases::CLEAN /* Cargo projects are always cleanable */;
+                let mut phases = Phases::CLEAN; // Cargo projects are always cleanable
                 if is_buildable {
                     phases |= Phases::BUILD;
                 }
