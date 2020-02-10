@@ -20,10 +20,10 @@ def test_build_multiproj(oenv, temp_dir):
 
     # test not found
     cp = oenv.run('oasis build e', cwd=multiproj_dir, check=False, stderr=PIPE)
-    assert 'no service named `e` found' in cp.stderr
+    assert 'no target named `e` found' in cp.stderr
 
     cp = oenv.run('oasis build ./asdf', cwd=multiproj_dir, check=False, stderr=PIPE)
-    assert 'the path `./asdf` does not exist' in cp.stderr
+    assert '`./asdf` does not refer to a target nor a directory' in cp.stderr
 
     cp = oenv.run('oasis build /', cwd=multiproj_dir, check=False, stderr=PIPE)
     assert 'the path `/` exists outside of this workspace' in cp.stderr

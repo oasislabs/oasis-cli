@@ -439,7 +439,7 @@ impl<'a, 't> TopTargets<'a, 't> {
                 search_paths.insert(canonicalize_path(&cwd, target_path), *target_str);
             } else {
                 warn!(
-                    "`{}` does not refer to a service nor a directory containing services",
+                    "`{}` does not refer to a target nor a directory containing targets",
                     target_str
                 );
             }

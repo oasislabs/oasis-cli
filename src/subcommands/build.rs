@@ -223,34 +223,38 @@ fn build_javascript_app(target: &Target, opts: &BuildOptions) -> Result<()> {
 fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOptions) -> Result<()> {
     emit!(cmd.build.start, { "project_type": target.project.kind.name() });
 
-    // link deps
-    let deps_dir = ensure_dir!(target.deps_dir())?;
-    if !deps_dir.join("package.json").exists() {
-        crate::cmd!(in &deps_dir, "npm", "init", "-y")?;
-        crate::cmd!(in &deps_dir, "npm", "install", "buffer", "oasis-std")?;
-        crate::cmd!(in &deps_dir, "npm", "install", "-D", "prettier")?;
-    }
+    let deps = workspace.dependencies_of(target)?;
 
-    for dep in workspace.dependencies_of(target)? {
-        let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
-        let ts_link = deps_dir.join(&ts_filename);
-        if !ts_link.exists() {
-            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+    if !deps.is_empty() {
+        // link deps
+        let deps_dir = ensure_dir!(target.deps_dir())?;
+        if !deps_dir.join("package.json").exists() {
+            crate::cmd!(in &deps_dir, "npm", "init", "-y")?;
+            crate::cmd!(in &deps_dir, "npm", "install", "buffer", "oasis-std")?;
+            crate::cmd!(in &deps_dir, "npm", "install", "-D", "prettier")?;
         }
-        crate::cmd!(
-            in deps_dir,
-            "npx",
-            "tsc",
-            &ts_filename,
-            "--pretty",
-            "--allowSyntheticDefaultImports",
-            "--declaration",
-            "--module", "umd",
-            "--moduleResolution", "node",
-            "--sourceMap",
-            "--strict",
-            "--target", "es2015"
-        )?;
+
+        for dep in deps {
+            let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
+            let ts_link = deps_dir.join(&ts_filename);
+            if !ts_link.exists() {
+                std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+            }
+            crate::cmd!(
+                in deps_dir,
+                "npx",
+                "tsc",
+                &ts_filename,
+                "--pretty",
+                "--allowSyntheticDefaultImports",
+                "--declaration",
+                "--module", "umd",
+                "--moduleResolution", "node",
+                "--sourceMap",
+                "--strict",
+                "--target", "es2015"
+            )?;
+        }
     }
 
     if let Err(e) = BuildTool::for_target(target).build(
