@@ -245,7 +245,7 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
                 module_name,
                 FileType::JavaScript.extension()
             ));
-            if js_path.exists() {
+            if ts_link.exists() && js_path.exists() {
                 print_status(Status::Fresh, &pretty_dep_name);
                 continue;
             }
