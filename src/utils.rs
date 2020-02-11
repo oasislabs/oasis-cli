@@ -3,6 +3,7 @@ use std::{fmt, path::Path};
 use colored::*;
 
 pub enum Status {
+    Fresh,
     Building,
     Preparing,
     Testing,
@@ -17,6 +18,7 @@ impl fmt::Display for Status {
             f,
             "{: >12}",
             match self {
+                Self::Fresh => "Fresh".green(),
                 Self::Building => "Building".cyan(),
                 Self::Preparing => "Preparing".cyan(),
                 Self::Testing => "Testing".cyan(),

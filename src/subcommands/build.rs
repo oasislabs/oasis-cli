@@ -235,11 +235,15 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
         }
 
         for dep in deps {
-            let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
+            let module_name = ts::module_name(&dep.name);
+            let ts_filename = disambiguated_filename(dep, FileType::TypeScript);
             let ts_link = deps_dir.join(&ts_filename);
-            if !ts_link.exists() {
-                std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+            if ts_link.exists() {
+                print_status(Status::Fresh, &dep.name);
+                continue;
             }
+            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+            print_status(Status::Building, &dep.name);
             crate::cmd!(
                 in deps_dir,
                 "npx",
@@ -254,6 +258,22 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
                 "--strict",
                 "--target", "es2015"
             )?;
+            for ftype in &[
+                FileType::JavaScript,
+                FileType::SourceMap,
+                FileType::Declaration,
+            ] {
+                let from = deps_dir.join(disambiguated_filename(dep, *ftype));
+                let to = deps_dir.join(format!("{}{}", module_name, ftype.extension()));
+                fs::rename(&from, &to).map_err(|e| {
+                    format_err!(
+                        "could not rename `{}` to `{}`: {}",
+                        from.display(),
+                        to.display(),
+                        e
+                    )
+                })?;
+            }
         }
     }
 
@@ -283,17 +303,49 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     .pop()
     .unwrap();
 
-    let ts_file =
-        ensure_dir!(target.artifacts_dir())?.join(format!("{}.ts", ts::module_name(&target.name)));
-    let mut out_file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&ts_file)
-        .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
-    out_file
-        .write_all(ts::generate(&iface, &bytecode_url).to_string().as_bytes())
-        .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
-    crate::cmd!("npx", "prettier", "--write", &ts_file)?;
+    let ts_file = ensure_dir!(target.artifacts_dir())?
+        .join(disambiguated_filename(target, FileType::TypeScript));
+    if !ts_file.exists() {
+        let mut out_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&ts_file)
+            .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
+        out_file
+            .write_all(ts::generate(&iface, &bytecode_url).to_string().as_bytes())
+            .map_err(|e| {
+                anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e)
+            })?;
+        crate::cmd!("npx", "prettier", "--write", &ts_file)?;
+    }
     Ok(())
+}
+
+fn disambiguated_filename(target: &Target, file_type: FileType) -> String {
+    format!(
+        "{}-{}{}",
+        ts::module_name(&target.name),
+        target.disambiguator().unwrap(),
+        file_type.extension(),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum FileType {
+    JavaScript,
+    TypeScript,
+    SourceMap,
+    Declaration,
+}
+
+impl FileType {
+    pub fn extension(&self) -> &str {
+        match self {
+            FileType::JavaScript => ".js",
+            FileType::TypeScript => ".ts",
+            FileType::SourceMap => ".js.map",
+            FileType::Declaration => ".d.ts",
+        }
+    }
 }

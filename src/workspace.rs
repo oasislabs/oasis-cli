@@ -1,8 +1,9 @@
 use std::{
     borrow::Cow,
     cell::{Cell, UnsafeCell},
-    collections::{BTreeMap, BTreeSet},
-    fmt,
+    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet},
+    fmt, fs,
+    hash::{Hash, Hasher},
     path::{Component, Path, PathBuf},
     pin::Pin,
 };
@@ -296,7 +297,7 @@ impl Workspace {
 
     fn load_javascript_projects(manifest_path: &Path) -> Result<Vec<Pin<Box<Project>>>> {
         let manifest: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
+            serde_json::from_slice(&fs::read(&manifest_path)?)?;
 
         if manifest
             .get("devDependencies")
@@ -338,7 +339,7 @@ impl Workspace {
         let manifest_dir = manifest_path.parent().unwrap();
 
         let tsconfig: Option<serde_json::Map<String, serde_json::Value>> =
-            std::fs::read(manifest_dir.join("tsconfig.json"))
+            fs::read(manifest_dir.join("tsconfig.json"))
                 .ok()
                 .and_then(|tsconfig| serde_json::from_slice(&tsconfig).ok());
 
@@ -647,6 +648,23 @@ impl Target {
             ProjectKind::Rust => Artifacts::RUST_CLIENT,
             ProjectKind::JavaScript | ProjectKind::TypeScript => Artifacts::TYPESCRIPT_CLIENT,
             ProjectKind::Wasm => unimplemented!("cannot yet link wasm modules"),
+        }
+    }
+
+    /// Returns a hex-encoded 64-bit hash of the target's primary artifact.
+    /// This is useful for not rebuilding unchanged targets.
+    pub fn disambiguator(&self) -> Result<String> {
+        if self.yields_artifact(Artifacts::SERVICE) {
+            let bytecode = fs::read(
+                self.wasm_path()
+                    .expect("service disambiguator should be called after wasm is built"),
+            )
+            .map_err(|e| format_err!("could not calculate disambiguator: {}", e))?;
+            let mut hasher = DefaultHasher::new();
+            bytecode.hash(&mut hasher);
+            Ok(format!("{:x}", hasher.finish()))
+        } else {
+            unimplemented!("disambiguators are not yet required (by app targets)")
         }
     }
 }
