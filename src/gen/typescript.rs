@@ -78,17 +78,6 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                 TypeDef::Enum { name, variants } => {
                     let type_ident = format_ts_ident!(@class, name);
 
-                    let is_tagged_union = variants.iter().any(|v| v.fields.is_some());
-                    if !is_tagged_union {
-                        let field_idents =
-                            variants.iter().map(|v| format_ts_ident!(@class, v.name));
-                        return quote! {
-                            export enum #type_ident {
-                                #(#field_idents),*
-                            }
-                        };
-                    }
-
                     let variant_idents: Vec<_> = variants
                         .iter()
                         .map(|v| format_ts_ident!(@class, v.name))
