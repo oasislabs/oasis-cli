@@ -238,12 +238,19 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
             let module_name = ts::module_name(&dep.name);
             let ts_filename = disambiguated_filename(dep, FileType::TypeScript);
             let ts_link = deps_dir.join(&ts_filename);
-            if ts_link.exists() {
-                print_status(Status::Fresh, &dep.name);
+
+            let pretty_dep_name = format!("{}.js", dep.name);
+            let js_path = deps_dir.join(format!(
+                "{}{}",
+                module_name,
+                FileType::JavaScript.extension()
+            ));
+            if js_path.exists() {
+                print_status(Status::Fresh, &pretty_dep_name);
                 continue;
             }
             std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
-            print_status(Status::Building, &dep.name);
+            print_status(Status::Building, &pretty_dep_name);
             crate::cmd!(
                 in deps_dir,
                 "npx",
