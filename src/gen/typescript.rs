@@ -287,8 +287,8 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
 
     quote! {
         public static async deploy(
-            #(#arg_idents: #arg_tys,)*
             gateway: oasis.Gateway,
+            { #(#arg_idents),* }: { #(#arg_idents: #arg_tys);* },
             options?: oasis.DeployOptions,
         ): Promise<#service_ident> {
             #deploy_try_catch
