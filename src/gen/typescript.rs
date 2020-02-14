@@ -11,7 +11,7 @@ macro_rules! format_ts_ident {
         format_ts_ident!(@raw, $name.to_camel_case())
     };
     (@var, $name:expr) => {
-        format_ts_ident!(@raw, $name.to_mixed_case())
+        format_ts_ident!(@raw, var_name(&$name))
     };
     (@const, $name:expr) => {
         format_ts_ident!(@raw, $name.to_shouty_snake_case());
@@ -140,16 +140,47 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                     name,
                     fields: indexed_fields,
                 } => {
-                    let topic_names: Vec<_> = indexed_fields
+                    let event_ident = format_ts_ident!(@class, name);
+                    let topic_names = indexed_fields.iter().map(|f| var_name(&f.name));
+                    let topic_idents: Vec<_> = indexed_fields
                         .iter()
                         .map(|f| format_ts_ident!(@var, &f.name))
                         .collect();
                     let topic_tys = indexed_fields.iter().map(|f| quote_ty(&f.ty));
+                    let topic_schema_tys = indexed_fields.iter().map(|f| quote_schema_ty(&f.ty));
+                    let topics_arg = if !indexed_fields.is_empty() {
+                        quote!(topics?: { #(#topic_idents?: #topic_tys),* })
+                    } else {
+                        quote!()
+                    };
+                    let maybe_dot = make_operator("?.");
+
                     let extra_members = quote! {
-                        public async subscribe(
-                            { #(#topic_names),* }: { #(#topic_names: #topic_tys),* }
-                        ): Promise<void> {
-                            return Promise.reject("unimplemented");
+                        public static async subscribe(
+                            gateway: oasis.Gateway,
+                            address: oasis.Address | null,
+                            #topics_arg
+                        ): Promise<oasis.Subscription<#event_ident>> {
+                            const encodedTopics = [
+                                oasis.encodeEventTopic("string", #event_ident.name),
+                            ];
+                            #(
+                                if (topics #maybe_dot hasOwnProperty(#topic_names)) {
+                                    encodedTopics.push(
+                                        oasis.encodeEventTopic(
+                                            #topic_schema_tys,
+                                            topics.#topic_idents,
+                                        )
+                                    );
+                                }
+                            )*
+                            return gateway.subscribe(
+                                address,
+                                encodedTopics,
+                                async (payload: Uint8Array) => {
+                                    return oasis.abiDecode(#event_ident, payload);
+                                }
+                            );
                         }
                     };
                     let fields: Vec<_> = indexed_fields
@@ -295,20 +326,8 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         }
 
         public static async makeDeployPayload(#(#arg_idents: #arg_tys,)*): Promise<Buffer> {
-            // TODO: move bytecode fetching to oasis-std
-            let bytecode;
-            if (#service_ident.BYTECODE_URL.startsWith("file://")) {
-                bytecode = await require("fs").promises.readFile(
-                    #service_ident.BYTECODE_URL.slice("file://".length)
-                );
-            } else {
-                bytecode = new Uint8Array(
-                    await (await fetch(#service_ident.BYTECODE_URL)).arrayBuffer()
-                );
-            }
-
             const encoder = new oasis.Encoder();
-            encoder.writeU8Array(bytecode);
+            encoder.writeU8Array(await oasis.fetchBytecode(#service_ident.BYTECODE_URL));
             return oasis.abiEncode(
                 [ #(#arg_schema_tys as oasis.Schema),* ],
                 [ #(#arg_idents),* ],
@@ -514,8 +533,11 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
 fn generate_error_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
     let err_handler = err_ty.map(|err_ty| {
         let quot_schema_err_ty = quote_ty(err_ty);
+        let maybe_dot = make_operator("?.");
+        let eq3 = make_operator("===");
         quote! {
-            if (e instanceof oasis.ExecutionError) {
+            if ((e instanceof oasis.ExecutionError) ||
+                e.constructor #maybe_dot name #eq3 "ExecutionError") {
                 throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e.output);
             }
         }
@@ -532,4 +554,27 @@ fn generate_error_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStre
 
 pub fn module_name(iface_name: impl AsRef<str>) -> String {
     iface_name.as_ref().to_kebab_case()
+}
+
+fn var_name(name: &str) -> String {
+    name.to_mixed_case()
+}
+
+pub fn make_operator(chars: &str) -> TokenStream {
+    use proc_macro2::{Punct, Spacing, TokenTree};
+    chars
+        .chars()
+        .enumerate()
+        .map(|(i, ch)| -> TokenTree {
+            Punct::new(
+                ch,
+                if i == chars.len() - 1 {
+                    Spacing::Alone
+                } else {
+                    Spacing::Joint
+                },
+            )
+            .into()
+        })
+        .collect()
 }

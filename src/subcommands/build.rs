@@ -249,7 +249,15 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
                 print_status(Status::Fresh, &pretty_dep_name);
                 continue;
             }
-            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), ts_link)?;
+            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), &ts_link).or_else(
+                |e| {
+                    if e.kind() == std::io::ErrorKind::AlreadyExists {
+                        Ok(())
+                    } else {
+                        Err(format_err!("could not link `{}`", ts_link.display()))
+                    }
+                },
+            )?;
             print_status(Status::Building, &pretty_dep_name);
             crate::cmd!(
                 in deps_dir,
