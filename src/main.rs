@@ -1,4 +1,10 @@
-#![feature(bind_by_move_pattern_guards, concat_idents)]
+#![feature(
+    bind_by_move_pattern_guards,
+    box_patterns,
+    cell_update,
+    concat_idents,
+    trusted_len
+)]
 
 #[macro_use]
 extern crate anyhow;
@@ -15,6 +21,7 @@ mod config;
 mod dialogue;
 mod dirs;
 mod errors;
+mod gen;
 mod help;
 mod subcommands;
 mod telemetry;

@@ -53,29 +53,42 @@ pub fn bin_dir() -> PathBuf {
 
 #[macro_export]
 macro_rules! ensure_dir {
-    ($dir:ident$( .push($subdir:expr) )? ) => {{
-        use crate::dirs::*;
-        #[allow(unused_mut)]
-        let mut dir = concat_idents!($dir, _dir)();
-        $( dir.push($subdir); )?
-        if dir.is_file() {
-            Err(anyhow!(
-                "{} dir `{}` is a file",
-                stringify!($dir),
-                dir.display()
-            ))
+    ($dir:expr) => {
+        $crate::ensure_dir!(
+            $dir,
+            "could not create drectory `{}`, as it is already a file",
+            $dir.display()
+        )
+    };
+    ($dir:expr, $err_fmt:literal, $($fmt_args:expr),* $(,)?) => {{
+        if $dir.is_file() {
+            Err(anyhow!($err_fmt, $($fmt_args),*))
         } else {
-            if !dir.is_dir() {
-                std::fs::create_dir_all(&dir)?
+            if !$dir.is_dir() {
+                std::fs::create_dir_all(&$dir)
+                    .map(|_| $dir)
+                    .map_err(|e| e.into())
+            } else {
+                Ok($dir)
             }
-            Ok(dir)
         }
     }};
 }
 
 #[macro_export]
-macro_rules! oasis_dir {
+macro_rules! ensure_xdg_dir {
+    ($dir:ident$( .push($subdir:expr) )? ) => {{
+        use crate::dirs::*;
+        #[allow(unused_mut)]
+        let mut dir = concat_idents!($dir, _dir)();
+        $( dir.push($subdir); )?
+        $crate::ensure_dir!(dir, "{} dir `{}` is a file", stringify!($dir), dir.display())
+    }};
+}
+
+#[macro_export]
+macro_rules! oasis_xdg_dir {
     ($dir:ident) => {
-        $crate::ensure_dir!($dir.push("oasis"));
+        $crate::ensure_xdg_dir!($dir.push("oasis"));
     };
 }

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, ffi::OsString, io, path::Path, process::Stdio};
 use crate::{
     emit,
     errors::{CliError, Error, Result},
+    workspace::{Project, ProjectKind, Target},
 };
 
 #[macro_export]
@@ -39,12 +40,13 @@ impl From<i64> for Verbosity {
 // `cmd` captures output and is intended for internal use.
 #[macro_export]
 macro_rules! cmd {
-    ($prog:expr, $( $arg:expr ),+) => {{
+    ($(in $curdir:expr,)? $prog:expr, $( $arg:expr ),+) => {{
         let mut cmd = std::process::Command::new($prog);
+        $(cmd.current_dir(&$curdir);)?
         cmd.envs(std::env::vars_os());
         $( cmd.arg($arg); )+
         debug!("running internal command: {:?}", cmd);
-        let output = cmd.output().map_err(|e| {
+        cmd.output().map_err(|e| {
             anyhow!(
                 "could not invoke `{}`: {}",
                 &[
@@ -53,46 +55,212 @@ macro_rules! cmd {
                 ].join(" "),
                 e
             )
-        })?;
-        if !output.status.success() {
-            Err(anyhow!(
-                "`{}` exited with error:\n{}", $prog, String::from_utf8(output.stderr).unwrap()
-            ))
-        } else {
-            Ok(output)
-        }
+        })
+        .and_then(|output| {
+            if !output.status.success() {
+                let err_msg = [
+                    std::str::from_utf8(&output.stdout).unwrap(),
+                    std::str::from_utf8(&output.stderr).unwrap()
+                ].join("\n");
+                Err(anyhow!("`{}` exited with error:\n{}", $prog, err_msg.trim()))
+            } else {
+                Ok(output)
+            }
+        })
     }}
 }
 
-pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
-    run_cmd_internal(name, args, None, verbosity, true)
+pub struct BuildTool<'a> {
+    project: &'a Project,
+    workdir: &'a Path,
+    kind: BuildToolKind,
 }
 
-pub fn run_cmd_with_env(
-    name: &str,
-    args: Vec<&str>,
-    envs: BTreeMap<OsString, OsString>,
-    verbosity: Verbosity,
-) -> Result<()> {
-    run_cmd_internal(name, args, Some(envs), verbosity, true)
+impl<'a> BuildTool<'a> {
+    pub fn for_target(target: &'a Target) -> Self {
+        Self::for_project(&target.project)
+    }
+
+    pub fn for_project(project: &'a Project) -> Self {
+        Self {
+            project,
+            workdir: project.manifest_path.parent().unwrap(), // TODO: fixup for lerna
+            kind: BuildToolKind::detect(project),
+        }
+    }
+
+    pub fn build(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("build", args, envs, verbosity)
+    }
+
+    pub fn test(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("test", args, envs, verbosity)
+    }
+
+    pub fn deploy(
+        self,
+        args: Vec<&'a str>,
+        envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
+            self.install_node_modules()?;
+        }
+        self.run("deploy", args, envs, verbosity)
+    }
+
+    pub fn clean(self) -> Result<()> {
+        self.run(
+            "clean",
+            Vec::new(),      /* args */
+            BTreeMap::new(), /* envs */
+            Verbosity::Silent,
+        )
+    }
+
+    fn run(
+        &self,
+        subcommand: &'a str,
+        mut builder_args: Vec<&'a str>,
+        mut envs: BTreeMap<OsString, OsString>,
+        verbosity: Verbosity,
+    ) -> Result<()> {
+        let mut args = Vec::new();
+
+        if let BuildToolKind::Cargo = self.kind {
+            args.push(concat!("+", rust_toolchain!()));
+        }
+
+        match self.kind {
+            BuildToolKind::Cargo => {
+                args.push(subcommand);
+                if verbosity < Verbosity::Normal {
+                    args.push("--quiet");
+                } else if verbosity == Verbosity::High {
+                    args.push("--verbose");
+                } else if verbosity == Verbosity::Debug {
+                    args.push("-vvv")
+                }
+                args.push("--manifest-path");
+                args.push(self.project.manifest_path.to_str().unwrap())
+            }
+            BuildToolKind::Npm => {
+                if verbosity < Verbosity::Normal {
+                    args.push("--silent");
+                } else if verbosity >= Verbosity::Verbose {
+                    args.push("--verbose");
+                }
+                args.push("--prefix");
+                args.push(self.workdir.to_str().unwrap());
+                args.push(subcommand);
+            }
+            BuildToolKind::Yarn => {
+                if verbosity < Verbosity::Normal {
+                    args.push("--silent");
+                } else if verbosity >= Verbosity::Verbose {
+                    args.push("--verbose");
+                }
+                args.push("--cwd");
+                args.push(self.workdir.to_str().unwrap());
+                args.push(subcommand);
+            }
+        }
+
+        args.append(&mut builder_args);
+
+        for (k, v) in std::env::vars_os() {
+            envs.entry(k).or_insert(v);
+        }
+
+        run_cmd_internal(self.name(), args, Some(envs), verbosity)
+    }
+
+    fn name(&self) -> &str {
+        match self.kind {
+            BuildToolKind::Cargo => "cargo",
+            BuildToolKind::Npm => "npm",
+            BuildToolKind::Yarn => "yarn",
+        }
+    }
+
+    fn install_node_modules(&self) -> Result<()> {
+        if !self.workdir.join("node_modules").is_dir() {
+            if let Err(e) = self.run(
+                "install",
+                Vec::new(),      /* args */
+                BTreeMap::new(), /* envs */
+                Verbosity::Silent,
+            ) {
+                emit!(cmd.build.error, {
+                    "cause": format!("{} install", self.name())
+                });
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+}
+
+pub enum BuildToolKind {
+    Cargo,
+    Npm,
+    Yarn,
+}
+
+impl BuildToolKind {
+    fn detect(project: &Project) -> Self {
+        match project.kind {
+            ProjectKind::Wasm => unreachable!("wasm is not buildable"),
+            ProjectKind::Rust => BuildToolKind::Cargo,
+            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                if project
+                    .manifest_path
+                    .parent()
+                    .unwrap()
+                    .join("yarn.lock")
+                    .is_file()
+                    || cmd!("which", "yarn").is_ok()
+                {
+                    BuildToolKind::Yarn
+                } else {
+                    BuildToolKind::Npm
+                }
+            }
+        }
+    }
+}
+
+pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
+    run_cmd_internal(name, args, None /* envs */, verbosity)
 }
 
 fn run_cmd_internal(
     name: &str,
-    mut args: Vec<&str>,
+    args: Vec<&str>,
     envs: Option<BTreeMap<OsString, OsString>>,
     verbosity: Verbosity,
-    allow_hook: bool,
 ) -> Result<()> {
     let (stdout, stderr) = match verbosity {
         Verbosity::Silent => (Stdio::null(), Stdio::null()),
         _ => (Stdio::inherit(), Stdio::inherit()),
     };
-    let mut cmd = std::process::Command::new(if allow_hook {
-        hook_cmd(name, &mut args, verbosity)?
-    } else {
-        name.to_string()
-    });
+    let mut cmd = std::process::Command::new(name.to_string());
     cmd.args(args).stdout(stdout).stderr(stderr);
 
     if let Some(envs) = envs {
@@ -109,47 +277,4 @@ fn run_cmd_internal(
     } else {
         Err(CliError::ProcessExit(name.to_string(), output.status.code().unwrap()).into())
     }
-}
-
-fn hook_cmd(name: &str, args: &mut Vec<&str>, verbosity: Verbosity) -> Result<String> {
-    Ok(match name {
-        "npm" => {
-            let npm = std::env::var("OASIS_NPM").unwrap_or_else(|_| name.to_string());
-            let package_dir = Path::new(
-                args.iter()
-                    .position(|a| *a == "--prefix")
-                    .map(|p| args[p + 1])
-                    .unwrap_or(""),
-            );
-            npm_install_if_needed(&npm, &package_dir, verbosity)?;
-            npm
-        }
-        "cargo" => {
-            if !args.get(0).unwrap_or(&"").starts_with('+') {
-                args.insert(0, concat!("+", rust_toolchain!()))
-            }
-            name.to_string()
-        }
-        _ => name.to_string(),
-    })
-}
-
-fn npm_install_if_needed<'a>(
-    npm_command: &'a str,
-    package_dir: &'a Path,
-    verbosity: Verbosity,
-) -> Result<()> {
-    if !package_dir.join("node_modules").is_dir() {
-        let npm_args = vec![
-            "install",
-            "--prefix",
-            package_dir.to_str().unwrap(),
-            "--quiet",
-        ];
-        if let Err(e) = run_cmd_internal(npm_command, npm_args, None, verbosity, false) {
-            emit!(cmd.build.error, { "cause": "npm install" });
-            return Err(e);
-        }
-    }
-    Ok(())
 }

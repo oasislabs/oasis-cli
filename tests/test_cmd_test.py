@@ -11,8 +11,11 @@ def test_invoke_npm(oenv, mock_tool):
     app_dir = osp.join(oenv.create_project(), 'app')
 
     cp = oenv.run('oasis test', cwd=app_dir, stdout=PIPE)
-    assert mock_tool.parse_output(cp.stdout)[0]['args'][0] == 'install'
-    assert mock_tool.parse_output(cp.stdout)[1]['args'][0] == 'test'
+    print(cp.stdout)
+    assert mock_tool.parse_output(cp.stdout)[0]['args'][0] == '--prefix'
+    assert mock_tool.parse_output(cp.stdout)[0]['args'][2] == 'build'
+    assert mock_tool.parse_output(cp.stdout)[1]['args'][0] == '--prefix'
+    assert mock_tool.parse_output(cp.stdout)[1]['args'][2] == 'test'
 
 
 def test_alt_npm(oenv, mock_tool):

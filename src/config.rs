@@ -263,7 +263,7 @@ impl Config {
         let mut config = Self::new();
 
         dialogue::introduction();
-        config.enable_telemetry(match crate::oasis_dir!(data) {
+        config.enable_telemetry(match crate::oasis_xdg_dir!(data) {
             Ok(telemetry_dir) => dialogue::prompt_telemetry(&telemetry_dir)?,
             Err(_) => false,
         });
@@ -279,7 +279,7 @@ impl Config {
     }
 
     fn default_path() -> Result<PathBuf> {
-        let mut config_path = crate::oasis_dir!(config)?;
+        let mut config_path = crate::oasis_xdg_dir!(config)?;
         config_path.push("config.toml");
         Ok(config_path)
     }

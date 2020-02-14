@@ -9,7 +9,7 @@ impl B {
     }
 
     pub fn say_hello(&self, _ctx: &Context) -> String {
-        c::CClient::at(Address::default());
+        c::CClient::new(Address::default());
         String::new()
     }
 }
