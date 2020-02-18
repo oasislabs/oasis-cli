@@ -19,7 +19,7 @@ pub fn prompt_telemetry(telemetry_path: &std::path::Path) -> Result<bool, Error>
          You can find your data in `{}` and can change your opt-in\n\
          status by running `{} config telemetry enable/disable`.\n",
         telemetry_path.display(),
-        std::env::args().nth(0).unwrap()
+        std::env::args().next().unwrap()
     );
     confirm("Enable telemetry?", false)
 }

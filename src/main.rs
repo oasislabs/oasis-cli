@@ -1,10 +1,4 @@
-#![feature(
-    bind_by_move_pattern_guards,
-    box_patterns,
-    cell_update,
-    concat_idents,
-    trusted_len
-)]
+#![feature(box_patterns, cell_update, concat_idents, trusted_len)]
 
 #[macro_use]
 extern crate anyhow;
@@ -53,7 +47,7 @@ fn main() {
     // `oasis chain` is handled before args are parsed so that we can forward
     // the raw args to `oasis-chain`. Clap won't allow collecting unknown flags.
     let mut args = std::env::args().skip(1);
-    if args.next().as_ref().map(|s| s.as_str()) == Some("chain") {
+    if args.next().as_deref() == Some("chain") {
         run_chain(args.collect::<Vec<_>>()).ok();
         return;
     }
