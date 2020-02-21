@@ -57,16 +57,16 @@ pub fn print_status_ctx(status: Status, what: impl fmt::Display, ctx: impl fmt::
 }
 
 pub mod http {
-    use reqwest::{header::HeaderMap, Error, IntoUrl, RequestBuilder, Url};
+    use reqwest::{blocking::RequestBuilder, header::HeaderMap, Error, IntoUrl, Url};
 
     pub struct ClientBuilder {
         url: Result<Url, Error>,
-        inner: reqwest::ClientBuilder,
+        inner: reqwest::blocking::ClientBuilder,
     }
 
     pub struct Client {
         url: Url,
-        inner: reqwest::Client,
+        inner: reqwest::blocking::Client,
     }
 
     impl ClientBuilder {
@@ -82,7 +82,7 @@ pub mod http {
                         url
                     }
                 }),
-                inner: reqwest::Client::builder().use_sys_proxy(),
+                inner: reqwest::blocking::Client::builder(),
             }
         }
 
