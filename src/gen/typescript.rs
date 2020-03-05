@@ -303,7 +303,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         .collect();
     let arg_schema_tys = ctor.inputs.iter().map(|field| quote_schema_ty(&field.ty));
 
-    let deploy_try_catch = generate_error_handler(
+    let deploy_try_catch = gen_rpc_err_handler(
         ctor.error.as_ref(),
         quote! {
             const deployedAddr = await gateway.deploy(
@@ -355,7 +355,12 @@ fn generate_rpc_functions<'a>(
         let rpc_ret_ty = rpc
             .output
             .as_ref()
-            .map(|o| quote_ty(o))
+            .map(|out_ty| {
+                quote_ty(match out_ty {
+                    oasis_rpc::Type::Result(box ok_ty, _) => ok_ty,
+                    _ => out_ty,
+                })
+            })
             .unwrap_or_else(|| quote!(void));
         let returner = rpc
             .output
@@ -364,6 +369,14 @@ fn generate_rpc_functions<'a>(
                 use oasis_rpc::Type::{Result, Tuple};
                 match output {
                     Tuple(tys) | Result(box Tuple(tys), _) if tys.is_empty() => None,
+                    oasis_rpc::Type::Result(box ok_ty, _) => {
+                        let quot_schema_ty = quote_schema_ty(ok_ty);
+                        //^ unwrap one layer of result, as the outer error is derived
+                        // from the tx status code.
+                        Some(quote! {
+                            return oasis.abiDecode(#quot_schema_ty as oasis.Schema, res);
+                        })
+                    }
                     _ => {
                         let quot_schema_ty = quote_schema_ty(output);
                         Some(quote! {
@@ -373,7 +386,7 @@ fn generate_rpc_functions<'a>(
                 }
             })
             .unwrap_or_else(|| quote!(return;));
-        let rpc_try_catch = generate_error_handler(
+        let rpc_try_catch = gen_rpc_err_handler(
             rpc.output.as_ref().and_then(|output| {
                 if let oasis_rpc::Type::Result(_, box err_ty) = output {
                     Some(err_ty)
@@ -463,8 +476,10 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
             let quot_ty = quote_ty(ty);
             quote!(#quot_ty | undefined)
         }
-        Result(ok_ty, _err_ty) => {
-            quote_ty(ok_ty) // NOTE: ensure proper (downstream) handling of error ty
+        Result(ok_ty, err_ty) => {
+            let quot_ok_ty = quote_ty(ok_ty);
+            let quot_err_ty = quote_ty(err_ty);
+            quote!(oasis.Result<#quot_ok_ty, #quot_err_ty>)
         }
     }
 }
@@ -522,19 +537,21 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
             let quot_ty = quote_schema_ty(ty);
             quote!(["Option", #quot_ty])
         }
-        Result(ok_ty, _err_ty) => {
-            quote_schema_ty(ok_ty) // NOTE: ensure proper (downstream) handling of error ty
+        Result(ok_ty, err_ty) => {
+            let quot_ok_ty = quote_schema_ty(ok_ty);
+            let quot_err_ty = quote_schema_ty(err_ty);
+            quote!(["Result", #quot_ok_ty, #quot_err_ty])
         }
     }
 }
 
-fn generate_error_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
+fn gen_rpc_err_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
     let err_handler = err_ty.map(|err_ty| {
         let quot_schema_err_ty = quote_ty(err_ty);
         let maybe_dot = make_operator("?.");
         let eq3 = make_operator("===");
         quote! {
-            if ((e instanceof oasis.ExecutionError) ||
+            if (e instanceof oasis.ExecutionError ||
                 e.constructor #maybe_dot name #eq3 "ExecutionError") {
                 throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e.output);
             }
