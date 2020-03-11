@@ -465,12 +465,12 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
         }
         Set(ty) => {
             let quot_ty = quote_ty(ty);
-            quote!(Set<#quot_ty>)
+            quote!(oasis.Set<#quot_ty>)
         }
         Map(k_ty, v_ty) => {
             let quot_k_ty = quote_ty(k_ty);
             let quot_v_ty = quote_ty(v_ty);
-            quote!(Map<#quot_k_ty, #quot_v_ty>)
+            quote!(oasis.Map<#quot_k_ty, #quot_v_ty>)
         }
         Optional(ty) => {
             let quot_ty = quote_ty(ty);
