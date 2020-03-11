@@ -267,7 +267,7 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
                 "--pretty",
                 "--allowSyntheticDefaultImports",
                 "--declaration",
-                "--module", "umd",
+                "--module", "commonjs",
                 "--moduleResolution", "node",
                 "--sourceMap",
                 "--strict",
