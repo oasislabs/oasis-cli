@@ -309,7 +309,8 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     let wasm_path = target
         .wasm_path()
         .expect("service target must yield a wasm artifact");
-    let bytecode_url = url::Url::parse(&format!("file://{}", wasm_path.display())).unwrap();
+    let bytecode = fs::read(&wasm_path)
+        .map_err(|e| anyhow::anyhow!("could not read `{}`: {}", wasm_path.display(), e))?;
 
     let iface = crate::subcommands::ifextract::extract_interface(
         oasis_rpc::import::ImportLocation::Path(wasm_path.to_path_buf()),
@@ -328,7 +329,7 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
             .open(&ts_file)
             .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
         out_file
-            .write_all(ts::generate(&iface, &bytecode_url).to_string().as_bytes())
+            .write_all(ts::generate(&iface, &bytecode).to_string().as_bytes())
             .map_err(|e| {
                 anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e)
             })?;

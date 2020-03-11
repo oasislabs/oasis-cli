@@ -21,9 +21,9 @@ macro_rules! format_ts_ident {
     };
 }
 
-pub fn generate(iface: &Interface, bytecode_url: &url::Url) -> TokenStream {
+pub fn generate(iface: &Interface, bytecode: &[u8]) -> TokenStream {
     let service_ident = format_ts_ident!(@class, iface.name);
-    let bytecode_url_str = bytecode_url.as_str();
+    let bytecode_str = base64::encode(bytecode);
 
     let imports = iface.imports.iter().map(|imp| {
         let import_ident = format_ts_ident!(@var, imp.name);
@@ -45,7 +45,7 @@ pub fn generate(iface: &Interface, bytecode_url: &url::Url) -> TokenStream {
         #(#type_defs)*
 
         export class #service_ident {
-            public static BYTECODE_URL = #bytecode_url_str;
+            public static BYTECODE = #bytecode_str;
 
             private constructor(readonly address: oasis.Address, private gateway: oasis.Gateway) {}
 
@@ -325,7 +325,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
 
         public static async makeDeployPayload(#(#arg_idents: #arg_tys,)*): Promise<Buffer> {
             const encoder = new oasis.Encoder();
-            encoder.writeU8Array(await oasis.fetchBytecode(#service_ident.BYTECODE_URL));
+            encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
             return oasis.abiEncode(
                 [ #(#arg_schema_tys as oasis.Schema),* ],
                 [ #(#arg_idents),* ],
