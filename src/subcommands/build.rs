@@ -227,9 +227,7 @@ fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOpti
     for dep in workspace.dependencies_of(target)? {
         let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
         let ts_client = clients_dir.join(&ts_filename);
-        if !ts_client.exists() {
-            fs::copy(dep.artifacts_dir().join(&ts_filename), &ts_client)?;
-        }
+        fs::copy(dep.artifacts_dir().join(&ts_filename), &ts_client)?;
     }
 
     if let Err(e) = BuildTool::for_target(target).build(
@@ -261,19 +259,15 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
 
     let ts_file =
         ensure_dir!(target.artifacts_dir())?.join(format!("{}.ts", ts::module_name(&target.name)));
-    if !ts_file.exists() {
-        let mut out_file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&ts_file)
-            .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
-        out_file
-            .write_all(ts::generate(&iface, &bytecode).to_string().as_bytes())
-            .map_err(|e| {
-                anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e)
-            })?;
-        crate::cmd!("npx", "prettier", "--write", &ts_file)?;
-    }
+    let mut out_file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&ts_file)
+        .map_err(|e| anyhow::format_err!("could not open `{}`: {}", ts_file.display(), e))?;
+    out_file
+        .write_all(ts::generate(&iface, &bytecode).to_string().as_bytes())
+        .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
+    crate::cmd!("npx", "prettier", "--write", &ts_file)?;
     Ok(())
 }
