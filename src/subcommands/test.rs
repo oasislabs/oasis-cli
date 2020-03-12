@@ -69,7 +69,7 @@ pub fn test(targets: &[&Target], opts: TestOptions) -> Result<()> {
                 print_status();
                 test_rust(target, &opts)?;
             }
-            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+            ProjectKind::JavaScript { .. } | ProjectKind::TypeScript { .. } => {
                 print_status();
                 test_javascript(target, &opts)?;
             }

@@ -76,7 +76,7 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
                     let out_file = Path::new(&target.name).with_extension("wasm");
                     prep_wasm(&Path::new(&target.name), &out_file, opts.debug)?;
                 }
-                ProjectKind::JavaScript | ProjectKind::TypeScript => {
+                ProjectKind::JavaScript { .. } | ProjectKind::TypeScript { .. } => {
                     unreachable!("[tj]s services don't yet exist")
                 }
             }
@@ -88,8 +88,8 @@ pub fn build(workspace: &Workspace, targets: &[&Target], opts: BuildOptions) -> 
 
         if target.yields_artifact(Artifacts::APP) {
             match proj.kind {
-                ProjectKind::JavaScript => build_javascript_app(target, &opts)?,
-                ProjectKind::TypeScript => build_typescript_app(workspace, &target, &opts)?,
+                ProjectKind::JavaScript { .. } => build_javascript_app(target, &opts)?,
+                ProjectKind::TypeScript { .. } => build_typescript_app(workspace, &target, &opts)?,
                 ProjectKind::Wasm => unreachable!("there's no such thing as a Wasm app"),
                 ProjectKind::Rust => unimplemented!("rust apps are not fully baked"),
             }
@@ -223,72 +223,12 @@ fn build_javascript_app(target: &Target, opts: &BuildOptions) -> Result<()> {
 fn build_typescript_app(workspace: &Workspace, target: &Target, opts: &BuildOptions) -> Result<()> {
     emit!(cmd.build.start, { "project_type": target.project.kind.name() });
 
-    let deps = workspace.dependencies_of(target)?;
-
-    if !deps.is_empty() {
-        // link deps
-        let deps_dir = ensure_dir!(target.deps_dir())?;
-        if !deps_dir.join("package.json").exists() {
-            crate::cmd!(in &deps_dir, "npm", "init", "-y")?;
-            crate::cmd!(in &deps_dir, "npm", "install", "buffer", "oasis-std")?;
-            crate::cmd!(in &deps_dir, "npm", "install", "-D", "prettier")?;
-        }
-
-        for dep in deps {
-            let module_name = ts::module_name(&dep.name);
-            let ts_filename = disambiguated_filename(dep, FileType::TypeScript);
-            let ts_link = deps_dir.join(&ts_filename);
-
-            let pretty_dep_name = format!("{}.js", dep.name);
-            let js_path = deps_dir.join(format!(
-                "{}{}",
-                module_name,
-                FileType::JavaScript.extension()
-            ));
-            if ts_link.exists() && js_path.exists() {
-                print_status(Status::Fresh, &pretty_dep_name);
-                continue;
-            }
-            std::os::unix::fs::symlink(dep.artifacts_dir().join(&ts_filename), &ts_link).or_else(
-                |e| {
-                    if e.kind() == std::io::ErrorKind::AlreadyExists {
-                        Ok(())
-                    } else {
-                        Err(format_err!("could not link `{}`", ts_link.display()))
-                    }
-                },
-            )?;
-            print_status(Status::Building, &pretty_dep_name);
-            crate::cmd!(
-                in deps_dir,
-                "npx",
-                "tsc",
-                &ts_filename,
-                "--pretty",
-                "--allowSyntheticDefaultImports",
-                "--declaration",
-                "--module", "commonjs",
-                "--moduleResolution", "node",
-                "--sourceMap",
-                "--strict",
-                "--target", "es2015"
-            )?;
-            for ftype in &[
-                FileType::JavaScript,
-                FileType::SourceMap,
-                FileType::Declaration,
-            ] {
-                let from = deps_dir.join(disambiguated_filename(dep, *ftype));
-                let to = deps_dir.join(format!("{}{}", module_name, ftype.extension()));
-                fs::rename(&from, &to).map_err(|e| {
-                    format_err!(
-                        "could not rename `{}` to `{}`: {}",
-                        from.display(),
-                        to.display(),
-                        e
-                    )
-                })?;
-            }
+    let clients_dir = ensure_dir!(target.clients_dir())?;
+    for dep in workspace.dependencies_of(target)? {
+        let ts_filename = format!("{}.ts", ts::module_name(&dep.name));
+        let ts_client = clients_dir.join(&ts_filename);
+        if !ts_client.exists() {
+            fs::copy(dep.artifacts_dir().join(&ts_filename), &ts_client)?;
         }
     }
 
@@ -319,8 +259,8 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     .pop()
     .unwrap();
 
-    let ts_file = ensure_dir!(target.artifacts_dir())?
-        .join(disambiguated_filename(target, FileType::TypeScript));
+    let ts_file =
+        ensure_dir!(target.artifacts_dir())?.join(format!("{}.ts", ts::module_name(&target.name)));
     if !ts_file.exists() {
         let mut out_file = fs::OpenOptions::new()
             .create(true)
@@ -336,32 +276,4 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
         crate::cmd!("npx", "prettier", "--write", &ts_file)?;
     }
     Ok(())
-}
-
-fn disambiguated_filename(target: &Target, file_type: FileType) -> String {
-    format!(
-        "{}-{}{}",
-        ts::module_name(&target.name),
-        target.disambiguator().unwrap(),
-        file_type.extension(),
-    )
-}
-
-#[derive(Clone, Copy)]
-enum FileType {
-    JavaScript,
-    TypeScript,
-    SourceMap,
-    Declaration,
-}
-
-impl FileType {
-    pub fn extension(&self) -> &str {
-        match self {
-            FileType::JavaScript => ".js",
-            FileType::TypeScript => ".ts",
-            FileType::SourceMap => ".js.map",
-            FileType::Declaration => ".d.ts",
-        }
-    }
 }

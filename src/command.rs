@@ -228,7 +228,7 @@ impl BuildToolKind {
         match project.kind {
             ProjectKind::Wasm => unreachable!("wasm is not buildable"),
             ProjectKind::Rust => BuildToolKind::Cargo,
-            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+            ProjectKind::JavaScript { .. } | ProjectKind::TypeScript { .. } => {
                 if project
                     .manifest_path
                     .parent()

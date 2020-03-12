@@ -1,9 +1,8 @@
 use std::{
     borrow::Cow,
     cell::{Cell, UnsafeCell},
-    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
-    hash::{Hash, Hasher},
     path::{Component, Path, PathBuf},
     pin::Pin,
 };
@@ -154,7 +153,7 @@ impl Workspace {
                     unresolved_deps.push((dep, next_dep_idx + 1));
                     unresolved_deps.push((transitive_dep_target, 0));
                 }
-            } else {
+            } else if !sorted_deps.iter().any(|sd| *sd == dep) {
                 sorted_deps.push(dep);
             }
         }
@@ -309,8 +308,10 @@ impl Workspace {
             return Ok(Vec::new()); // there are subpackages to be found
         }
 
-        let service_deps = manifest
-            .get("serviceDependencies")
+        let oasis_config = manifest.get("oasis").and_then(|oasis| oasis.as_object());
+
+        let service_deps = oasis_config
+            .and_then(|oasis| oasis.get("serviceDependencies"))
             .cloned()
             .and_then(|d| serde_json::from_value::<BTreeMap<String, String>>(d).ok())
             .unwrap_or_default();
@@ -339,6 +340,12 @@ impl Workspace {
 
         let manifest_dir = manifest_path.parent().unwrap();
 
+        let clients_dir = oasis_config
+            .and_then(|oasis| oasis.get("clientsDir"))
+            .and_then(|clients_dir| clients_dir.as_str())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| manifest_dir.to_path_buf());
+
         let tsconfig: Option<serde_json::Map<String, serde_json::Value>> =
             fs::read(manifest_dir.join("tsconfig.json"))
                 .ok()
@@ -346,9 +353,9 @@ impl Workspace {
 
         let mut proj = Box::pin(Project {
             kind: if tsconfig.is_some() {
-                ProjectKind::TypeScript
+                ProjectKind::TypeScript { clients_dir }
             } else {
-                ProjectKind::JavaScript
+                ProjectKind::JavaScript { clients_dir }
             },
             manifest_path: manifest_path.to_path_buf(),
             target_dir: tsconfig
@@ -554,11 +561,11 @@ pub struct Project {
     pub targets: Vec<Target>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum ProjectKind {
     Rust,
-    JavaScript,
-    TypeScript,
+    JavaScript { clients_dir: PathBuf },
+    TypeScript { clients_dir: PathBuf },
     Wasm,
 }
 
@@ -566,8 +573,8 @@ impl ProjectKind {
     pub fn name(&self) -> &str {
         match self {
             ProjectKind::Rust => "rust",
-            ProjectKind::JavaScript => "javascript",
-            ProjectKind::TypeScript => "typescript",
+            ProjectKind::JavaScript { .. } => "javascript",
+            ProjectKind::TypeScript { .. } => "typescript",
             ProjectKind::Wasm => "wasm",
         }
     }
@@ -609,12 +616,12 @@ impl Target {
     }
 
     /// Retuns the path to where Oasis-generated dependencies should be placed.
-    pub fn deps_dir(&self) -> PathBuf {
+    pub fn clients_dir(&self) -> PathBuf {
         let target_dir = &self.project.target_dir;
-        match self.project.kind {
+        match &self.project.kind {
             ProjectKind::Rust => target_dir.join("service"),
-            ProjectKind::JavaScript | ProjectKind::TypeScript => {
-                self.manifest_dir().join("node_modules/oasis-service")
+            ProjectKind::JavaScript { clients_dir } | ProjectKind::TypeScript { clients_dir } => {
+                self.manifest_dir().join(clients_dir)
             }
             ProjectKind::Wasm => target_dir.to_path_buf(),
         }
@@ -647,25 +654,10 @@ impl Target {
     pub fn required_artifacts(&self) -> Artifacts {
         match self.project.kind {
             ProjectKind::Rust => Artifacts::RUST_CLIENT,
-            ProjectKind::JavaScript | ProjectKind::TypeScript => Artifacts::TYPESCRIPT_CLIENT,
+            ProjectKind::JavaScript { .. } | ProjectKind::TypeScript { .. } => {
+                Artifacts::TYPESCRIPT_CLIENT
+            }
             ProjectKind::Wasm => unimplemented!("cannot yet link wasm modules"),
-        }
-    }
-
-    /// Returns a hex-encoded 64-bit hash of the target's primary artifact.
-    /// This is useful for not rebuilding unchanged targets.
-    pub fn disambiguator(&self) -> Result<String> {
-        if self.yields_artifact(Artifacts::SERVICE) {
-            let bytecode = fs::read(
-                self.wasm_path()
-                    .expect("service disambiguator should be called after wasm is built"),
-            )
-            .map_err(|e| format_err!("could not calculate disambiguator: {}", e))?;
-            let mut hasher = DefaultHasher::new();
-            bytecode.hash(&mut hasher);
-            Ok(format!("{:x}", hasher.finish()))
-        } else {
-            unimplemented!("disambiguators are not yet required (by app targets)")
         }
     }
 }

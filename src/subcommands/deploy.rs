@@ -97,7 +97,7 @@ pub fn deploy(targets: &[&Target], opts: DeployOptions) -> Result<()> {
     for target in targets.iter().filter(|t| t.is_deployable()) {
         let proj = &target.project;
         match &proj.kind {
-            ProjectKind::JavaScript | ProjectKind::TypeScript => {
+            ProjectKind::JavaScript { .. } | ProjectKind::TypeScript { .. } => {
                 if opts.verbosity > Verbosity::Quiet {
                     print_status_in(
                         Status::Deploying,
