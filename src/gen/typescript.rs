@@ -130,6 +130,15 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                             }
 
                             export const VARIANTS: Function[] = [ #(#variant_idents),* ];
+
+                            export function isVariant(obj: any): boolean {
+                                for(const variant of #type_ident.VARIANTS) {
+                                    if (obj instanceof variant) {
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }
                         }
                         export type #type_ident = #(#type_ident.#variant_idents)|*;
                     }
