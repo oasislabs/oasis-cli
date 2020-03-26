@@ -31,7 +31,7 @@ impl Workspace {
         let cwd = std::env::current_dir().unwrap(); // Checked during initialization.
         let repo_root = cwd
             .ancestors()
-            .find(|a| a.join(".git").is_dir())
+            .find(|a| a.join(".git").exists())
             .ok_or_else(|| WorkspaceError::NoWorkspace(cwd.display().to_string()))?;
 
         let mut walk_builder = ignore::WalkBuilder::new(repo_root);
