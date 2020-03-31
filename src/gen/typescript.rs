@@ -131,8 +131,8 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
 
                             export const VARIANTS: Function[] = [ #(#variant_idents),* ];
 
-                            export function isVariant(obj: any): boolean {
-                                for(const variant of #type_ident.VARIANTS) {
+                            export function isVariant(obj: any): obj is #type_ident {
+                                for (const variant of #type_ident.VARIANTS) {
                                     if (obj instanceof variant) {
                                         return true;
                                     }
@@ -441,6 +441,7 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
         String => quote!(string),
         Address => quote!(oasis.Address),
         Balance => quote!(oasis.Balance),
+        RpcError => quote!(oasis.RpcError),
         Defined { namespace, ty } => {
             let ty_ident = format_ts_ident!(@class, ty);
             if let Some(ns) = namespace {
@@ -511,6 +512,7 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         String => quote!("string"),
         Address => quote!(oasis.Address),
         Balance => quote!(oasis.Balance),
+        RpcError => quote!(oasis.RpcError),
         Defined { namespace, ty } => {
             let ty_ident = format_ts_ident!(@class, ty);
             if let Some(ns) = namespace {
@@ -557,12 +559,9 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
 fn gen_rpc_err_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
     let err_handler = err_ty.map(|err_ty| {
         let quot_schema_err_ty = quote_ty(err_ty);
-        let maybe_dot = make_operator("?.");
-        let eq3 = make_operator("===");
         quote! {
-            if (e instanceof oasis.ExecutionError ||
-                e.constructor #maybe_dot name #eq3 "ExecutionError") {
-                throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e.output);
+            if (e instanceof oasis.RpcError.Execution) {
+                throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e[0]);
             }
         }
     });
