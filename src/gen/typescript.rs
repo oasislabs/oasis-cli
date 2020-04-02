@@ -71,7 +71,16 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
 
             match type_def {
                 TypeDef::Struct { name, fields } => {
-                    generate_struct_class(name, fields, quote!(), None)
+                    if fields.iter().any(|f| f.name.parse::<u32>().is_ok()) {
+                        generate_tuple_class(
+                            &name,
+                            &fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>(),
+                            quote!(),
+                            None,
+                        )
+                    } else {
+                        generate_struct_class(name, fields, quote!(), None)
+                    }
                 }
                 TypeDef::Enum { name, variants } => {
                     let type_ident = format_ts_ident!(@class, name);
