@@ -551,7 +551,7 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
         Map(k_ty, v_ty) => {
             let quot_k_ty = quote_schema_ty(k_ty);
             let quot_v_ty = quote_schema_ty(v_ty);
-            quote!(["Map", <#quot_k_ty, #quot_v_ty>])
+            quote!(["Map", #quot_k_ty, #quot_v_ty])
         }
         Optional(ty) => {
             let quot_ty = quote_schema_ty(ty);
