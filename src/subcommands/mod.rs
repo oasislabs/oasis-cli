@@ -10,7 +10,7 @@ pub mod toolchain;
 use crate::errors::Error;
 
 pub use build::{build, BuildOptions};
-pub use chain::run_chain;
+pub use chain::{run_chain, ChainOptions};
 pub use clean::clean;
 pub use deploy::{deploy, DeployOptions};
 pub use ifextract::ifextract;

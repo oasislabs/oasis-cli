@@ -1,4 +1,4 @@
-#![feature(box_patterns, cell_update, concat_idents, trusted_len)]
+#![feature(box_patterns, cell_update, concat_idents)]
 
 #[macro_use]
 extern crate anyhow;
@@ -44,18 +44,11 @@ fn main() {
         warn!("could not enable telemetry: {}", err);
     };
 
-    // `oasis chain` is handled before args are parsed so that we can forward
-    // the raw args to `oasis-chain`. Clap won't allow collecting unknown flags.
-    let mut args = std::env::args().skip(1);
-    if args.next().as_ref().map(|s| s.as_str()) == Some("chain") {
-        run_chain(args.collect::<Vec<_>>()).ok();
-        return;
-    }
-
     let app_m = cli::build_app().get_matches();
     let result = match app_m.subcommand() {
         ("init", Some(m)) => InitOptions::new(&m).exec(),
         ("build", Some(m)) => BuildOptions::new(&m).exec(),
+        ("chain", Some(m)) => ChainOptions::new(&m).exec(),
         ("test", Some(m)) => TestOptions::new(&m, &config).exec(),
         ("clean", Some(m)) => clean(
             &m.values_of("TARGETS")

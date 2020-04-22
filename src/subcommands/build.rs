@@ -200,7 +200,7 @@ fn externalize_mem(module: &mut walrus::Module) {
     };
     module.exports.delete(mem_export_id);
 
-    let mut mem = module.memories.iter_mut().nth(0).unwrap();
+    let mut mem = module.memories.iter_mut().next().unwrap();
     mem.import = Some(module.imports.add("env", "memory", mem.id()));
 }
 
@@ -251,7 +251,7 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
         .map_err(|e| anyhow::anyhow!("could not read `{}`: {}", wasm_path.display(), e))?;
 
     let iface = crate::subcommands::ifextract::extract_interface(
-        oasis_rpc::import::ImportLocation::Path(wasm_path.to_path_buf()),
+        oasis_rpc::import::ImportLocation::Path(wasm_path),
         target.manifest_dir(),
     )?
     .pop()

@@ -103,7 +103,7 @@ pub fn set(version: &str) -> Result<(), Error> {
     .ok(); // This isn't catastropic. We'll just have to re-download later.
 
     crate::cmd!(
-        std::env::args().nth(0).unwrap(), /* oasis */
+        std::env::args().next().unwrap(), /* oasis */
         "set-toolchain",
         "current"
     )?;
@@ -301,20 +301,23 @@ impl FromStr for Tool {
     fn from_str(s3_key: &str) -> Result<Self, Self::Err> {
         s3_key
             .rsplitn(2, '/')
-            .nth(0) // `rsplitn` reverses, so this is actually the last component
-            .and_then(
-                |tool_hash| match tool_hash.rsplitn(2, '-').collect::<Vec<_>>().as_slice() {
-                    [hash, tool] => Some(Tool {
-                        // This is way too much copying, but doing otherwise would impair
-                        // maintainability. Try speeding up the network connection instead.
-                        name: tool.to_string(),
-                        ver: hash.to_string(),
-                        name_ver: tool_hash.to_string(),
-                        s3_key: s3_key.to_string(),
-                    }),
+            .next() // `rsplitn` reverses, so this is actually the last component
+            .and_then(|tool_hash| {
+                let mut parts = tool_hash.rsplitn(2, '-');
+                match (parts.next(), parts.next()) {
+                    (Some(hash), Some(tool)) => {
+                        Some(Tool {
+                            // This is way too much copying, but doing otherwise would impair
+                            // maintainability. Try speeding up the network connection instead.
+                            name: tool.to_string(),
+                            ver: hash.to_string(),
+                            name_ver: tool_hash.to_string(),
+                            s3_key: s3_key.to_string(),
+                        })
+                    }
                     _ => None,
-                },
-            )
+                }
+            })
             .ok_or_else(|| anyhow!("invalid tool key: `{}`", s3_key))
     }
 }
@@ -330,7 +333,7 @@ impl serde::Serialize for Tool {
 impl<'de> serde::Deserialize<'de> for Tool {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s3_key = String::deserialize(deserializer)?;
-        let name_ver = s3_key.rsplitn(2, '/').nth(0).unwrap();
+        let name_ver = s3_key.rsplitn(2, '/').next().unwrap();
         let ver_name = name_ver.rsplitn(2, '-').collect::<Vec<_>>();
         Ok(Tool {
             name_ver: name_ver.to_string(),

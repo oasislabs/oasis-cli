@@ -246,10 +246,6 @@ impl BuildToolKind {
     }
 }
 
-pub fn run_cmd(name: &str, args: Vec<&str>, verbosity: Verbosity) -> Result<()> {
-    run_cmd_internal(name, args, None /* envs */, verbosity)
-}
-
 fn run_cmd_internal(
     name: &str,
     args: Vec<&str>,

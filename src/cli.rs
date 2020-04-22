@@ -59,7 +59,7 @@ pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         )
         (@subcommand chain =>
             (about: "Run a local Oasis blockchain")
-            (@arg chain_args: +multiple "Args to pass to oasis-chain")
+            (@arg verbose: +multiple -v --verbose "Increase verbosity")
         )
         (@subcommand config =>
             (about: "View and edit configuration options")
