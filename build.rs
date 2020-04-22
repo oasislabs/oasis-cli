@@ -1,5 +1,5 @@
 const TEMPLATE_REPO_URL: &str = "https://github.com/oasislabs/template";
-const TEMPLATE_VER: &str = "0.2";
+const TEMPLATE_VER: &str = "0.3";
 
 fn main() -> anyhow::Result<()> {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
