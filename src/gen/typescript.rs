@@ -610,7 +610,7 @@ fn quote_schema_ty(ty: &oasis_rpc::Type) -> TokenStream {
 
 fn gen_rpc_err_handler(err_ty: Option<&oasis_rpc::Type>, try_block: TokenStream) -> TokenStream {
     let err_handler = err_ty.map(|err_ty| {
-        let quot_schema_err_ty = quote_ty(err_ty);
+        let quot_schema_err_ty = quote_schema_ty(err_ty);
         quote! {
             if (e instanceof oasis.RpcError.Execution) {
                 throw oasis.abiDecode(#quot_schema_err_ty as oasis.Schema, e[0]);
