@@ -637,13 +637,9 @@ impl Target {
     }
 
     pub fn wasm_path(&self) -> Option<PathBuf> {
-        use heck::SnakeCase as _;
         if self.yields_artifact(Artifacts::SERVICE) {
             Some(match self.project.kind {
-                ProjectKind::Rust => self
-                    .artifacts_dir()
-                    .join(format!("{}.wasm", self.name.to_snake_case())),
-                //  ^ TODO: replace with kebab case once Rust codegen moves to cli
+                ProjectKind::Rust => self.artifacts_dir().join(format!("{}.wasm", self.name)),
                 _ => unreachable!(),
             })
         } else {

@@ -226,7 +226,7 @@ fn generate_struct_class<'a>(
         .iter()
         .map(|field| format_ts_ident!(@var, field.name))
         .collect();
-    let field_tys: Vec<_> = fields.iter().map(|field| quote_ty(&field.ty)).collect();
+    let field_decls: Vec<_> = fields.iter().map(generate_field_decl).collect();
     let field_schema_tys: Vec<_> = fields
         .iter()
         .map(|field| quote_schema_ty(&field.ty))
@@ -239,9 +239,9 @@ fn generate_struct_class<'a>(
 
     quote! {
         export class #class_ident implements oasis.AbiEncodable {
-            #(public #field_idents: #field_tys;)*
+            #(public #field_decls;)*
 
-            public constructor(fields: { #(#field_idents: #field_tys),* }) {
+            public constructor(fields: { #(#field_decls;)* }) {
                 #(this.#field_idents = fields.#field_idents;)*
             }
 
@@ -324,31 +324,46 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
     let deploy_try_catch = gen_rpc_err_handler(
         ctor.error.as_ref(),
         quote! {
-            const deployedAddr = await gateway.deploy(
-                await #service_ident.makeDeployPayload(#(#arg_idents),*),
-                options,
-            );
+            const deployedAddr = await gateway.deploy(payload, options);
             return new #service_ident(deployedAddr, gateway);
         },
     );
 
-    quote! {
-        public static async deploy(
-            gateway: oasis.Gateway,
-            { #(#arg_idents),* }: { #(#arg_idents: #arg_tys);* },
-            options?: oasis.DeployOptions,
-        ): Promise<#service_ident> {
-            #deploy_try_catch
-        }
+    // TODO: refactor to dedupe
+    if ctor.inputs.is_empty() {
+        quote! {
+            public static async deploy(gateway: oasis.Gateway, options?: oasis.DeployOptions): Promise<#service_ident> {
+                const payload = #service_ident.makeDeployPayload();
+                #deploy_try_catch
+            }
 
-        public static async makeDeployPayload(#(#arg_idents: #arg_tys,)*): Promise<Buffer> {
-            const encoder = new oasis.Encoder();
-            encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-            return oasis.abiEncode(
-                [ #(#arg_schema_tys as oasis.Schema),* ],
-                [ #(#arg_idents),* ],
-                encoder
-            );
+            public static makeDeployPayload(): Buffer {
+                const encoder = new oasis.Encoder();
+                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+                return encoder.finish();
+            }
+        }
+    } else {
+        let arg_decls = ctor.inputs.iter().map(generate_field_decl);
+        quote! {
+            public static async deploy(
+                gateway: oasis.Gateway,
+                { #(#arg_idents),* }: { #(#arg_decls;)* },
+                options?: oasis.DeployOptions,
+            ): Promise<#service_ident> {
+                const payload =  #service_ident.makeDeployPayload(#(#arg_idents),*);
+                #deploy_try_catch
+            }
+
+            private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
+                const encoder = new oasis.Encoder();
+                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+                return oasis.abiEncode(
+                    [ #(#arg_schema_tys as oasis.Schema),* ],
+                    [ #(#arg_idents),* ],
+                    encoder
+                );
+            }
         }
     }
 }
@@ -418,26 +433,54 @@ fn generate_rpc_functions<'a>(
             },
         );
 
-        quote! {
-            public async #fn_ident(
-                #(#arg_idents: #arg_tys,)*
-                options?: oasis.RpcOptions
-            ): Promise<#rpc_ret_ty> {
-                const payload = #service_ident.#make_payload_ident(#(#arg_idents),*);
-                #rpc_try_catch
-            }
+        if rpc.inputs.is_empty() {
+            quote! {
+                public async #fn_ident(options?: oasis.RpcOptions): Promise<#rpc_ret_ty> {
+                    const payload = #service_ident.#make_payload_ident();
+                    #rpc_try_catch
+                }
 
-            public static #make_payload_ident(#(#arg_idents: #arg_tys,)*): Buffer {
-                const encoder = new oasis.Encoder();
-                encoder.writeU8(#fn_id_lit);
-                return oasis.abiEncode(
-                    [ #(#arg_schema_tys as oasis.Schema),* ],
-                    [ #(#arg_idents),* ],
-                    encoder
-                );
+                private static #make_payload_ident(): Buffer {
+                    const encoder = new oasis.Encoder();
+                    encoder.writeU8(#fn_id_lit);
+                    return encoder.finish();
+                }
+            }
+        } else {
+            let arg_decls = rpc.inputs.iter().map(generate_field_decl);
+            quote! {
+                public async #fn_ident(
+                    { #(#arg_idents),* }: { #(#arg_decls;)* },
+                    options?: oasis.RpcOptions
+                ): Promise<#rpc_ret_ty> {
+                    const payload = #service_ident.#make_payload_ident(#(#arg_idents),*);
+                    #rpc_try_catch
+                }
+
+                private static #make_payload_ident(#(#arg_idents: #arg_tys,)*): Buffer {
+                    const encoder = new oasis.Encoder();
+                    encoder.writeU8(#fn_id_lit);
+                    return oasis.abiEncode(
+                        [ #(#arg_schema_tys as oasis.Schema),* ],
+                        [ #(#arg_idents),* ],
+                        encoder
+                    );
+                }
             }
         }
     })
+}
+
+fn generate_field_decl(field: &oasis_rpc::Field) -> TokenStream {
+    let field_name = format_ts_ident!(@var, &field.name);
+    let field_ty = quote_ty(&field.ty);
+    let maybe_optional = match &field.ty {
+        oasis_rpc::Type::Optional(_) => Some(quote!(?)),
+        _ => None,
+    };
+    quote! {
+        #field_name #maybe_optional: #field_ty
+    }
 }
 
 fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
