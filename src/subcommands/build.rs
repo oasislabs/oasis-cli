@@ -268,6 +268,6 @@ fn build_typescript_client(target: &Target, _opts: &BuildOptions) -> Result<()> 
     out_file
         .write_all(ts::generate(&iface, &bytecode).to_string().as_bytes())
         .map_err(|e| anyhow::format_err!("could not generate `{}`: {}", ts_file.display(), e))?;
-    crate::cmd!("npx", "prettier", "--write", &ts_file)?;
+    crate::cmd!("npx", "prettier", "--write", &ts_file).ok();
     Ok(())
 }

@@ -26,7 +26,7 @@ def test_firstrun_skip_dialog(oenv):
 
 def test_init(oenv):
     oenv.run('oasis init test')
-    with open(osp.join(oenv.home_dir, 'test/service/Cargo.toml')) as f_cargo:
+    with open(osp.join(oenv.home_dir, 'test/services/Cargo.toml')) as f_cargo:
         assert f_cargo.read().startswith('[package]\nname = "test"')
     assert not osp.exists(oenv.metrics_file)
 
