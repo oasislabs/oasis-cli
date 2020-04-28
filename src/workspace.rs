@@ -280,13 +280,18 @@ impl Workspace {
                     }
                     None => BTreeMap::default(),
                 };
+                let artifacts = if pkg.dependencies.iter().any(|d| d.name == "oasis-client") {
+                    Artifacts::APP
+                } else {
+                    Artifacts::SERVICE
+                };
                 proj.targets.push(Target {
                     project: proj_ref,
                     name: target.name.to_string(),
                     path: target.src_path,
                     phases,
                     dependencies: deps,
-                    artifacts: Cell::new(Artifacts::SERVICE),
+                    artifacts: Cell::new(artifacts),
                     //^ TODO: move rust codegen and service detection to cli
                 });
             }
@@ -708,6 +713,13 @@ struct CargoPackage {
     manifest_path: String,
     #[serde(default)]
     metadata: Option<PackageMetadata>,
+    #[serde(default)]
+    dependencies: Vec<CargoDependency>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoDependency {
+    name: String,
 }
 
 #[derive(Debug, Deserialize)]
