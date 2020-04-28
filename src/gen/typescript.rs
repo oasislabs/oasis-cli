@@ -165,7 +165,7 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                     let topic_tys = indexed_fields.iter().map(|f| quote_ty(&f.ty));
                     let topic_schema_tys = indexed_fields.iter().map(|f| quote_schema_ty(&f.ty));
                     let topics_arg = if !indexed_fields.is_empty() {
-                        quote!(topics?: { #(#topic_idents?: #topic_tys),* })
+                        quote!(topics?: { #(#topic_idents?: #topic_tys),* },)
                     } else {
                         quote!()
                     };
@@ -176,6 +176,7 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                             gateway: oasis.Gateway,
                             address: oasis.Address | null,
                             #topics_arg
+                            filter: (event: #event_ident) => boolean = () => true,
                         ): Promise<oasis.Subscription<#event_ident>> {
                             const encodedTopics = [
                                 oasis.encodeEventTopic("string", #event_ident.name),
@@ -195,7 +196,8 @@ fn generate_type_defs(type_defs: &[oasis_rpc::TypeDef]) -> Vec<TokenStream> {
                                 encodedTopics,
                                 async (payload: Uint8Array) => {
                                     return oasis.abiDecode(#event_ident, payload);
-                                }
+                                },
+                                filter,
                             );
                         }
                     };
