@@ -28,7 +28,9 @@ jobs:
       - run:
           name: Install oasis-build
           command: |
-            cargo install --git http://github.com/oasislabs/oasis-rs oasis-build --debug
+            target/debug/oasis set-toolchain latest
+            mv ~/.local/bin/oasis-build ~/.cargo/bin
+            rm ~/.local/bin/oasis
       - run: pytest -n 8 tests/
 
   clippy:
