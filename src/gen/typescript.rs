@@ -340,6 +340,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
             public static makeDeployPayload(): Buffer {
                 const encoder = new oasis.Encoder();
                 encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+                encoder.writeU8Array(Buffer.from([0x0f, 0x00]));  // end-of-wasm marker
                 return encoder.finish();
             }
         }
@@ -358,6 +359,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
             private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
                 const encoder = new oasis.Encoder();
                 encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+                encoder.writeU8Array(Buffer.from([0x0f, 0x00]));  // end-of-wasm marker
                 return oasis.abiEncode(
                     [ #(#arg_schema_tys as oasis.Schema),* ],
                     [ #(#arg_idents),* ],
