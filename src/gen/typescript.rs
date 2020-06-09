@@ -329,43 +329,39 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         },
     );
 
-    // TODO: refactor to dedupe
-    if ctor.inputs.is_empty() {
-        quote! {
-            public static async deploy(gateway: oasis.Gateway, options?: oasis.DeployOptions): Promise<#service_ident> {
-                const payload = #service_ident.makeDeployPayload();
-                #deploy_try_catch
-            }
-
-            public static makeDeployPayload(): Buffer {
-                const encoder = new oasis.Encoder();
-                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-                encoder.writeU8Array(Buffer.from([0x0f, 0x00]));  // end-of-wasm marker
-                return encoder.finish();
-            }
-        }
+    let arg_decls = ctor.inputs.iter().map(generate_field_decl);
+    let (deploy_args, final_encode_call) =     if !ctor.inputs.is_empty() {
+        (quote! {
+            { #(#arg_idents),* }: { #(#arg_decls;)* },
+        },quote! {
+            oasis.abiEncode(
+                [ #(#arg_schema_tys as oasis.Schema),* ],
+                [ #(#arg_idents),* ],
+                encoder
+            );
+        })
     } else {
-        let arg_decls = ctor.inputs.iter().map(generate_field_decl);
-        quote! {
-            public static async deploy(
-                gateway: oasis.Gateway,
-                { #(#arg_idents),* }: { #(#arg_decls;)* },
-                options?: oasis.DeployOptions,
-            ): Promise<#service_ident> {
-                const payload =  #service_ident.makeDeployPayload(#(#arg_idents),*);
-                #deploy_try_catch
-            }
+        (quote! {
 
-            private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
-                const encoder = new oasis.Encoder();
-                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-                encoder.writeU8Array(Buffer.from([0x0f, 0x00]));  // end-of-wasm marker
-                return oasis.abiEncode(
-                    [ #(#arg_schema_tys as oasis.Schema),* ],
-                    [ #(#arg_idents),* ],
-                    encoder
-                );
-            }
+        },quote! {
+            encoder.finish();
+        })
+    };
+
+    quote! {
+        public static async deploy(
+            gateway: oasis.Gateway,
+            #deploy_args
+            options?: oasis.DeployOptions,
+        ): Promise<#service_ident> {
+            const payload =  #service_ident.makeDeployPayload(#(#arg_idents),*);
+            #deploy_try_catch
+        }
+
+        private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
+            const encoder = new oasis.Encoder();
+            encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+            return #final_encode_call
         }
     }
 }
