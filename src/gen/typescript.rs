@@ -361,6 +361,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
             const encoder = new oasis.Encoder();
             encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+            Buffer.from("\x00\x18==OasisEndOfWasmMarker==", "binary");
             return #final_encode_call
         }
     }
