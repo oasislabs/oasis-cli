@@ -330,22 +330,26 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
     );
 
     let arg_decls = ctor.inputs.iter().map(generate_field_decl);
-    let (deploy_args, final_encode_call) =     if !ctor.inputs.is_empty() {
-        (quote! {
-            { #(#arg_idents),* }: { #(#arg_decls;)* },
-        },quote! {
-            oasis.abiEncode(
-                [ #(#arg_schema_tys as oasis.Schema),* ],
-                [ #(#arg_idents),* ],
-                encoder
-            );
-        })
+    let (deploy_args, final_encode_call) = if !ctor.inputs.is_empty() {
+        (
+            quote! {
+                { #(#arg_idents),* }: { #(#arg_decls;)* },
+            },
+            quote! {
+                oasis.abiEncode(
+                    [ #(#arg_schema_tys as oasis.Schema),* ],
+                    [ #(#arg_idents),* ],
+                    encoder
+                );
+            },
+        )
     } else {
-        (quote! {
-
-        },quote! {
-            encoder.finish();
-        })
+        (
+            quote! {},
+            quote! {
+                encoder.finish();
+            },
+        )
     };
 
     quote! {
@@ -361,7 +365,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
             const encoder = new oasis.Encoder();
             encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-            Buffer.from("\x00\x18==OasisEndOfWasmMarker==", "binary");
+            encoder.writeU8Array(Buffer.from("\x00\x18==OasisEndOfWasmMarker==", "binary"));
             return #final_encode_call
         }
     }
