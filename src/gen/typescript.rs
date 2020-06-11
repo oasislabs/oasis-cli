@@ -332,9 +332,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
     let arg_decls = ctor.inputs.iter().map(generate_field_decl);
     let (deploy_args, final_encode_call) = if !ctor.inputs.is_empty() {
         (
-            quote! {
-                { #(#arg_idents),* }: { #(#arg_decls;)* },
-            },
+            quote!({ #(#arg_idents),* }: { #(#arg_decls;)* },),
             quote! {
                 oasis.abiEncode(
                     [ #(#arg_schema_tys as oasis.Schema),* ],
@@ -344,13 +342,19 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
             },
         )
     } else {
-        (
-            quote! {},
-            quote! {
-                encoder.finish();
-            },
-        )
+        (quote!(), quote!(encoder.finish();))
     };
+
+    // The magic wasm separator string that oasis-parity encourages callers to provide in the
+    // (code || separator || data) payload.
+    // It is also a valid WASM section:
+    //   - 00 = section ID for "custom section"
+    //   - 19 = section length
+    //   - 18 = name length
+    //   - the rest is the section name, followed by 0 bytes of contents
+    // This way, old versions of the runtime (that do not know how to use the separator) can
+    // still parse and effectively ignore the it.
+    let wasm_separator: TokenStream = quote! {"\x00\x19\x18==OasisEndOfWasmMarker=="};
 
     quote! {
         public static async deploy(
@@ -365,7 +369,7 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
             const encoder = new oasis.Encoder();
             encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-            encoder.writeU8Array(Buffer.from("\x00\x18==OasisEndOfWasmMarker==", "binary"));
+            encoder.writeU8Array(Buffer.from(#wasm_separator, "binary"));
             return #final_encode_call
         }
     }
