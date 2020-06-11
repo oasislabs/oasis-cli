@@ -4,6 +4,7 @@ import os.path as osp
 import re
 from subprocess import PIPE
 
+# pylint: disable=relative-beyond-top-level
 from .conftest import SAMPLE_KEY, SAMPLE_MNEMONIC, SAMPLE_TOKEN
 
 
