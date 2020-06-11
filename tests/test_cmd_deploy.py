@@ -3,15 +3,21 @@
 import os.path as osp
 from subprocess import PIPE
 
+import pytest
+
 from .conftest import SAMPLE_KEY
 
+SKIP_REASON = '`deploy` subcommand is soft deprecated'
 
+
+@pytest.mark.skip(reason=SKIP_REASON)
 def test_deploy_no_key(oenv):
     app_dir = osp.join(oenv.create_project(), 'app')
     cp = oenv.run('oasis deploy', cwd=app_dir, stdout=PIPE, check=False)
     assert 'https://dashboard.oasiscloud.io' in cp.stdout
 
 
+@pytest.mark.skip(reason=SKIP_REASON)
 def test_deploy_with_key(oenv, mock_tool):
     mock_tool.create_at(osp.join(oenv.bin_dir, 'npm'))
     app_dir = osp.join(oenv.create_project(), 'app')
@@ -20,6 +26,7 @@ def test_deploy_with_key(oenv, mock_tool):
     assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'default'
 
 
+@pytest.mark.skip(reason=SKIP_REASON)
 def test_deploy_profile(oenv, mock_tool):
     mock_tool.create_at(osp.join(oenv.bin_dir, 'npm'))
     app_dir = osp.join(oenv.create_project(), 'app')

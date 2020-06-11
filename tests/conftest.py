@@ -41,14 +41,11 @@ def oenv(request):
             git_dir = osp.dirname(shutil.which('git'))
             cargo_home = osp.join(os.environ['HOME'], '.cargo')
             self.env.update({
-                'CARGO_HOME':
-                cargo_home,
-                'RUSTUP_HOME':
-                osp.join(os.environ['HOME'], '.rustup'),
-                'HOME':
-                self.home_dir,
-                'PATH':
-                f'{self.bin_dir}:{TARGET_DIR}:{cargo_home}/bin:/usr/bin/:/bin:{git_dir}',
+                'CARGO_HOME': cargo_home,
+                'RUSTUP_HOME': osp.join(os.environ['HOME'], '.rustup'),
+                'HOME': self.home_dir,
+                'PATH': f'{self.bin_dir}:{TARGET_DIR}:{cargo_home}/bin:/usr/bin/:/bin:{git_dir}',
+                'LD_LIBRARY_PATH': os.environ['LD_LIBRARY_PATH'],
             })
 
             self._configured = False

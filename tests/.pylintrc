@@ -7,3 +7,6 @@ ignored-argument-names=.*_proxy
 [REPORTS]
 output-format=colorized
 score=no
+
+[MESSAGES CONTROL]
+disable=relative-beyond-top-level

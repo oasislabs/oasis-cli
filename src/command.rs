@@ -9,7 +9,7 @@ use crate::{
 #[macro_export]
 macro_rules! rust_toolchain {
     () => {
-        "nightly-2019-08-26"
+        "nightly-2020-02-16"
     };
 }
 
