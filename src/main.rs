@@ -75,9 +75,8 @@ fn main() {
         ("set-toolchain", Some(m)) => toolchain::set(m.value_of("VERSION").unwrap()),
         ("upload_metrics", _) => telemetry::upload(),
         _ => {
-            cli::build_app()
-                .write_long_help(&mut std::io::stdout())
-                .unwrap();
+            cli::build_app().print_long_help().unwrap();
+            println!(); // print_long_help() doesn't add trailing new line.
             return;
         }
     }

@@ -5,6 +5,7 @@ from subprocess import PIPE
 
 import pytest
 
+# pylint: disable=relative-beyond-top-level
 from .conftest import SAMPLE_KEY
 
 SKIP_REASON = '`deploy` subcommand is soft deprecated'
