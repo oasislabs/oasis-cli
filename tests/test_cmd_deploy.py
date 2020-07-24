@@ -24,8 +24,7 @@ def test_deploy_with_key(oenv, mock_tool):
     app_dir = osp.join(oenv.create_project(), 'app')
     oenv.run(f'oasis config profile.default.credential "{SAMPLE_KEY}"')
     cp = oenv.run('oasis deploy', cwd=app_dir, stdout=PIPE)
-    assert mock_tool.parse_output(
-        cp.stdout)[1]['env']['OASIS_PROFILE'] == 'default'
+    assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'default'
 
 
 @pytest.mark.skip(reason=SKIP_REASON)
@@ -36,5 +35,4 @@ def test_deploy_profile(oenv, mock_tool):
     # note below: 0th invocation of "npm" is `npm install`, which is done without OASIS_PROFILE
 
     cp = oenv.run('oasis deploy --profile local', cwd=app_dir, stdout=PIPE)
-    assert mock_tool.parse_output(
-        cp.stdout)[1]['env']['OASIS_PROFILE'] == 'local'
+    assert mock_tool.parse_output(cp.stdout)[1]['env']['OASIS_PROFILE'] == 'local'
