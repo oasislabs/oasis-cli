@@ -4,6 +4,7 @@ import os.path as osp
 import re
 from subprocess import PIPE
 
+# pylint: disable=relative-beyond-top-level
 from .conftest import SAMPLE_KEY, SAMPLE_MNEMONIC, SAMPLE_TOKEN
 
 
@@ -62,12 +63,12 @@ def test_edit_credential(oenv):
 
 
 def test_edit_credential_invalid(oenv):
-    cp = oenv.run(f'oasis config profile.local.credential "abcdef"', check=False, stderr=PIPE)
+    cp = oenv.run('oasis config profile.local.credential "abcdef"', check=False, stderr=PIPE)
     assert 'invalid' in cp.stderr
 
 
 def test_edit_from_stdin(oenv):
-    oenv.run(f'oasis config profile.default.credential -', input=f'{SAMPLE_MNEMONIC}\n')
+    oenv.run('oasis config profile.default.credential -', input=f'{SAMPLE_MNEMONIC}\n')
     cp = oenv.run('oasis config profile.default.credential', stdout=PIPE)
     assert cp.stdout.rstrip() == SAMPLE_MNEMONIC
 
@@ -79,5 +80,5 @@ def test_edit_gateway(oenv):
 
 
 def test_edit_gateway_invalid(oenv):
-    cp = oenv.run(f'oasis config profile.default.gateway "not://a-url!"', check=False, stderr=PIPE)
+    cp = oenv.run('oasis config profile.default.gateway "not://a-url!"', check=False, stderr=PIPE)
     assert 'invalid' in cp.stderr

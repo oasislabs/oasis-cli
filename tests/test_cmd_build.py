@@ -36,7 +36,7 @@ def test_build_multiproj(oenv, temp_dir):
     shutil.rmtree(target_dir)
 
     oenv.run('oasis build d', cwd=multiproj_dir)
-    assert osp.isfile(osp.join(target_dir, f'd.wasm'))
+    assert osp.isfile(osp.join(target_dir, 'd.wasm'))
     for svc in ['a', 'b', 'c']:
         assert not osp.isfile(osp.join(target_dir, f'{svc}.wasm'))
 
@@ -47,8 +47,8 @@ def test_build_multiproj(oenv, temp_dir):
     os.makedirs(workspace_dir, exist_ok=True)
 
     oenv.run('oasis build b', cwd=workspace_dir)
-    assert osp.isfile(osp.join(target_dir, f'b.wasm'))
-    assert osp.isfile(osp.join(target_dir, f'c.wasm'))
+    assert osp.isfile(osp.join(target_dir, 'b.wasm'))
+    assert osp.isfile(osp.join(target_dir, 'c.wasm'))
 
     shutil.rmtree(target_dir)
 

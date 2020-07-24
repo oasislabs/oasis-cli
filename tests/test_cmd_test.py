@@ -3,6 +3,7 @@
 import os.path as osp
 from subprocess import PIPE
 
+# pylint: disable=relative-beyond-top-level
 from .conftest import SAMPLE_KEY
 
 

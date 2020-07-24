@@ -331,41 +331,48 @@ fn generate_deploy_function(service_ident: &Ident, ctor: &oasis_rpc::Constructor
         },
     );
 
-    // TODO: refactor to dedupe
-    if ctor.inputs.is_empty() {
-        quote! {
-            public static async deploy(gateway: oasis.Gateway, options?: oasis.DeployOptions): Promise<#service_ident> {
-                const payload = #service_ident.makeDeployPayload();
-                #deploy_try_catch
-            }
-
-            public static makeDeployPayload(): Buffer {
-                const encoder = new oasis.Encoder();
-                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-                return encoder.finish();
-            }
-        }
-    } else {
-        let arg_decls = ctor.inputs.iter().map(generate_field_decl);
-        quote! {
-            public static async deploy(
-                gateway: oasis.Gateway,
-                { #(#arg_idents),* }: { #(#arg_decls;)* },
-                options?: oasis.DeployOptions,
-            ): Promise<#service_ident> {
-                const payload =  #service_ident.makeDeployPayload(#(#arg_idents),*);
-                #deploy_try_catch
-            }
-
-            private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
-                const encoder = new oasis.Encoder();
-                encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
-                return oasis.abiEncode(
+    let arg_decls = ctor.inputs.iter().map(generate_field_decl);
+    let (deploy_args, final_encode_call) = if !ctor.inputs.is_empty() {
+        (
+            quote!({ #(#arg_idents),* }: { #(#arg_decls;)* },),
+            quote! {
+                oasis.abiEncode(
                     [ #(#arg_schema_tys as oasis.Schema),* ],
                     [ #(#arg_idents),* ],
                     encoder
                 );
-            }
+            },
+        )
+    } else {
+        (quote!(), quote!(encoder.finish();))
+    };
+
+    // The magic wasm separator string that oasis-parity encourages callers to provide in the
+    // (code || separator || data) payload.
+    // It is also a valid WASM section:
+    //   - 00 = section ID for "custom section"
+    //   - 19 = section length
+    //   - 18 = name length
+    //   - the rest is the section name, followed by 0 bytes of contents
+    // This way, old versions of the runtime (that do not know how to use the separator) can
+    // still parse and effectively ignore the it.
+    let wasm_separator: TokenStream = quote! {"\x00\x19\x18==OasisEndOfWasmMarker=="};
+
+    quote! {
+        public static async deploy(
+            gateway: oasis.Gateway,
+            #deploy_args
+            options?: oasis.DeployOptions,
+        ): Promise<#service_ident> {
+            const payload =  #service_ident.makeDeployPayload(#(#arg_idents),*);
+            #deploy_try_catch
+        }
+
+        private static makeDeployPayload(#(#arg_idents: #arg_tys,)*): Buffer {
+            const encoder = new oasis.Encoder();
+            encoder.writeU8Array(Buffer.from(#service_ident.BYTECODE, "base64"));
+            encoder.writeU8Array(Buffer.from(#wasm_separator, "binary"));
+            return #final_encode_call
         }
     }
 }
