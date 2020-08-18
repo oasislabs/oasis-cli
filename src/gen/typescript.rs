@@ -495,7 +495,7 @@ fn quote_ty(ty: &oasis_rpc::Type) -> TokenStream {
     match ty {
         Bool => quote!(boolean),
         U8 | I8 | U16 | I16 | U32 | I32 | F32 | F64 => quote!(number),
-        U64 | I64 => quote!(BigInt),
+        U64 | I64 => quote!(bigint),
         Bytes => quote!(Uint8Array),
         String => quote!(string),
         Address => quote!(oasis.Address),
