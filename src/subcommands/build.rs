@@ -4,6 +4,8 @@ use std::{
     fs,
     io::Write as _,
     path::Path,
+    process::Command,
+    str,
 };
 
 use crate::{
@@ -189,6 +191,14 @@ fn build_rust_app(target: &Target, opts: &BuildOptions) -> Result<()> {
     Ok(())
 }
 
+/// Remove a trailing newline from a byte string.
+fn strip_trailing_newline(mut input: Vec<u8>) -> Vec<u8> {
+    while input[..].ends_with(&[b'\n']) || input[..].ends_with(&[b'\r']) {
+        input.pop();
+    }
+    input
+}
+
 pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<()> {
     let mut module = walrus::Module::from_file(input_wasm)?;
 
@@ -216,6 +226,22 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
             module.customs.delete(id);
         }
     }
+
+    // Add a section with version info for current git repo.
+    let git_sha = match Command::new("git").args(&["rev-parse", "HEAD"]).output() {
+        Err(_) => "(git rev-parse failed)".as_bytes().to_vec(),
+        Ok(output) => strip_trailing_newline(output.stdout),
+    };
+    module.customs.add(walrus::RawCustomSection {
+        name: "oasis_version".to_string(),
+        data: format!(
+            r#"{{"sha":"{}","serviceName":"{}"}}"#,
+            str::from_utf8(&git_sha[..])?,
+            input_wasm.file_stem().unwrap_or_default().to_string_lossy()
+        )
+        .as_bytes()
+        .to_vec(),
+    });
 
     module.emit_wasm_file(output_wasm)?;
 
