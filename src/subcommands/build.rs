@@ -4,6 +4,8 @@ use std::{
     fs,
     io::Write as _,
     path::Path,
+    process::Command,
+    str,
 };
 
 use crate::{
@@ -217,9 +219,38 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
         }
     }
 
+    // Add a section with version info for current git repo.
+    let git_sha = match Command::new("git").args(&["rev-parse", "HEAD"]).output() {
+        Ok(output) => strip_trailing_newline(output.stdout),
+        Err(_) => b"(git rev-parse failed)".to_vec(),
+    };
+    let git_has_dirty_index = Command::new("git")
+        .args(&["status", "--porcelain"])
+        .output()
+        .map(|o| !strip_trailing_newline(o.stdout).is_empty())
+        .unwrap_or_default();
+    module.customs.add(walrus::RawCustomSection {
+        name: "oasis_version".to_string(),
+        data: format!(
+            r#"{{"sha":"{}{}","serviceName":"{}"}}"#,
+            String::from_utf8(git_sha)?,
+            if git_has_dirty_index { " (DIRTY)" } else { "" },
+            input_wasm.file_stem().unwrap_or_default().to_string_lossy()
+        )
+        .into_bytes(),
+    });
+
     module.emit_wasm_file(output_wasm)?;
 
     Ok(())
+}
+
+/// Remove a trailing newline from a byte string.
+fn strip_trailing_newline(mut input: Vec<u8>) -> Vec<u8> {
+    while input[..].ends_with(&[b'\n']) || input[..].ends_with(&[b'\r']) {
+        input.pop();
+    }
+    input
 }
 
 fn externalize_mem(module: &mut walrus::Module) {
