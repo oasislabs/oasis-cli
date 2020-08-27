@@ -191,14 +191,6 @@ fn build_rust_app(target: &Target, opts: &BuildOptions) -> Result<()> {
     Ok(())
 }
 
-/// Remove a trailing newline from a byte string.
-fn strip_trailing_newline(mut input: Vec<u8>) -> Vec<u8> {
-    while input[..].ends_with(&[b'\n']) || input[..].ends_with(&[b'\r']) {
-        input.pop();
-    }
-    input
-}
-
 pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<()> {
     let mut module = walrus::Module::from_file(input_wasm)?;
 
@@ -232,7 +224,7 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
         Ok(output) => strip_trailing_newline(output.stdout),
         Err(_) => b"(git rev-parse failed)".to_vec(),
     };
-    let is_git_dirty = match Command::new("git")
+    let git_has_dirty_index = Command::new("git")
         .args(&["status", "--porcelain"])
         .output()
         .map(|o| !strip_trailing_newline(o.stdout).is_empty())
@@ -242,7 +234,7 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
         data: format!(
             r#"{{"sha":"{}{}","serviceName":"{}"}}"#,
             String::from_utf8(git_sha)?,
-            if is_git_dirty { " (DIRTY)" } else { "" },
+            if git_has_dirty_index { " (DIRTY)" } else { "" },
             input_wasm.file_stem().unwrap_or_default().to_string_lossy()
         )
         .into_bytes(),
@@ -251,6 +243,14 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
     module.emit_wasm_file(output_wasm)?;
 
     Ok(())
+}
+
+/// Remove a trailing newline from a byte string.
+fn strip_trailing_newline(mut input: Vec<u8>) -> Vec<u8> {
+    while input[..].ends_with(&[b'\n']) || input[..].ends_with(&[b'\r']) {
+        input.pop();
+    }
+    input
 }
 
 fn externalize_mem(module: &mut walrus::Module) {
