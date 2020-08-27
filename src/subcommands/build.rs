@@ -229,26 +229,23 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
 
     // Add a section with version info for current git repo.
     let git_sha = match Command::new("git").args(&["rev-parse", "HEAD"]).output() {
-        Err(_) => b"(git rev-parse failed)".to_vec(),
         Ok(output) => strip_trailing_newline(output.stdout),
+        Err(_) => b"(git rev-parse failed)".to_vec(),
     };
     let is_git_dirty = match Command::new("git")
         .args(&["status", "--porcelain"])
         .output()
-    {
-        Err(_) => false,
-        Ok(output) => !strip_trailing_newline(output.stdout).is_empty(),
-    };
+        .map(|o| !strip_trailing_newline(o.stdout).is_empty())
+        .unwrap_or_default();
     module.customs.add(walrus::RawCustomSection {
         name: "oasis_version".to_string(),
         data: format!(
             r#"{{"sha":"{}{}","serviceName":"{}"}}"#,
-            str::from_utf8(&git_sha[..])?,
+            String::from_utf8(git_sha)?,
             if is_git_dirty { " (DIRTY)" } else { "" },
             input_wasm.file_stem().unwrap_or_default().to_string_lossy()
         )
-        .as_bytes()
-        .to_vec(),
+        .into_bytes(),
     });
 
     module.emit_wasm_file(output_wasm)?;
