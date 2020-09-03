@@ -222,7 +222,7 @@ pub fn prep_wasm(input_wasm: &Path, output_wasm: &Path, debug: bool) -> Result<(
     // Add a section with version info for current git repo.
     let git_sha = match Command::new("git").args(&["rev-parse", "HEAD"]).output() {
         Ok(output) => strip_trailing_newline(output.stdout),
-        Err(_) => b"(git rev-parse failed)".to_vec(),
+        Err(_) => fs::read(".git/refs/heads/master").unwrap_or(b"(git rev-parse failed)".to_vec()),
     };
     let git_has_dirty_index = Command::new("git")
         .args(&["status", "--porcelain"])
