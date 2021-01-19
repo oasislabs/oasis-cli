@@ -91,24 +91,34 @@ impl<'a> BuildTool<'a> {
 
     pub fn build(
         self,
-        args: Vec<&'a str>,
+        mut args: Vec<&'a str>,
         envs: BTreeMap<OsString, OsString>,
         verbosity: Verbosity,
     ) -> Result<()> {
-        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
-            self.install_node_modules()?;
+        match self.kind {
+            BuildToolKind::Npm | BuildToolKind::Yarn => {
+                self.install_node_modules()?;
+            }
+            BuildToolKind::Cargo => {
+                args.push("--locked");
+            }
         }
         self.run("build", args, envs, verbosity)
     }
 
     pub fn test(
         self,
-        args: Vec<&'a str>,
+        mut args: Vec<&'a str>,
         envs: BTreeMap<OsString, OsString>,
         verbosity: Verbosity,
     ) -> Result<()> {
-        if let BuildToolKind::Npm | BuildToolKind::Yarn = self.kind {
-            self.install_node_modules()?;
+        match self.kind {
+            BuildToolKind::Npm | BuildToolKind::Yarn => {
+                self.install_node_modules()?;
+            }
+            BuildToolKind::Cargo => {
+                args.push("--locked");
+            }
         }
         self.run("test", args, envs, verbosity)
     }
